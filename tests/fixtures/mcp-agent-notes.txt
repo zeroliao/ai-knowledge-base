@@ -1,0 +1,5 @@
+﻿MCP 与 Agent 资料笔记
+
+Codex 接 MCP 时，应优先使用官方 MCP 或项目已经配置的 MCP。Filesystem MCP 只能访问指定 storage 目录，避免读取无关路径。Fetch MCP 可用于普通静态网页抓取，但复杂 JS 网页放到 V2 再评估 Firecrawl、Browserbase 或 Apify。
+
+V1 不运行本地大模型、本地 embedding 模型、Whisper、Milvus、浏览器集群和复杂 Agent 沙盒。

@@ -1,0 +1,19 @@
+# Secrets
+key.md
+.env
+.env.*
+!.env.example
+
+# Local FastGPT runtime files
+runtime/
+storage/
+
+# Logs and temporary files
+logs/
+tmp/
+*.log
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
