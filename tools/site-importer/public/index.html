@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>站点文章导入器</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <main class="app">
+      <section class="panel">
+        <div class="header">
+          <div>
+            <h1>站点文章导入器</h1>
+            <p>通过 sitemap 批量创建 FastGPT 链接集合，不需要 Web 站点同步权限。</p>
+          </div>
+          <span class="badge">Qwen/Qwen3-Embedding-8B</span>
+        </div>
+
+        <form id="importForm" class="grid">
+          <label>
+            FastGPT 地址
+            <input name="fastgptBaseUrl" value="https://kb.zero007.chat" required />
+          </label>
+
+          <label>
+            FastGPT API Key
+            <input name="apiKey" type="password" autocomplete="off" placeholder="fastgpt-..." required />
+          </label>
+
+          <label>
+            知识库 ID
+            <input name="datasetId" placeholder="datasetId" required />
+          </label>
+
+          <label>
+            父集合 ID（可选）
+            <input name="parentId" placeholder="不填则导入到知识库根目录" />
+          </label>
+
+          <label class="wide">
+            Sitemap 地址
+            <input name="sitemapUrl" value="https://869hr.uk/sitemap.xml" required />
+          </label>
+
+          <label>
+            最大导入数量
+            <input name="limit" type="number" min="0" value="0" />
+          </label>
+
+          <label>
+            单篇间隔（毫秒）
+            <input name="delayMs" type="number" min="0" value="1000" />
+          </label>
+
+          <label>
+            训练模式
+            <select name="trainingType">
+              <option value="chunk" selected>chunk</option>
+              <option value="qa">qa</option>
+            </select>
+          </label>
+
+          <label>
+            分块大小
+            <input name="chunkSize" type="number" min="500" value="8000" />
+          </label>
+
+          <label class="wide check">
+            <input name="includeNonArticleUrls" type="checkbox" />
+            包含非文章 URL
+          </label>
+
+          <div class="actions wide">
+            <button type="button" id="previewBtn">预览 URL</button>
+            <button type="submit" class="primary">开始导入</button>
+            <button type="button" id="cancelBtn" disabled>取消当前任务</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="panel">
+        <div class="statusLine">
+          <strong id="statusText">未开始</strong>
+          <span id="countText"></span>
+        </div>
+        <div class="progress">
+          <div id="progressBar"></div>
+        </div>
+        <pre id="output"></pre>
+      </section>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
