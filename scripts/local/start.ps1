@@ -1,6 +1,7 @@
 param(
   [string]$EnvFile = ".env.local",
-  [string]$ComposeFile = "runtime\fastgpt\docker-compose.pg.yml"
+  [string]$ComposeFile = "runtime\fastgpt\docker-compose.pg.yml",
+  [string]$OverrideFile = "runtime\fastgpt\docker-compose.local.override.yml"
 )
 
 $ErrorActionPreference = "Stop"
@@ -25,5 +26,9 @@ if (-not (Test-Path -LiteralPath $ComposeFile)) {
   throw "Missing $ComposeFile after download."
 }
 
-docker compose --env-file $EnvFile -f $ComposeFile up -d
+if (Test-Path -LiteralPath $OverrideFile) {
+  docker compose --env-file $EnvFile -f $ComposeFile -f $OverrideFile up -d
+} else {
+  docker compose --env-file $EnvFile -f $ComposeFile up -d
+}
 Write-Output "FastGPT local stack started."

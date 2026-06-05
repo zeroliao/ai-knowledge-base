@@ -1,5 +1,5 @@
 ﻿部署验收清单
 
-基础服务需要验证 FastGPT、MongoDB、PostgreSQL + pgvector、Redis、AIProxy 和 sub2api 均正常运行。模型需要分别验证 Chat 模型和 Embedding 模型。
+基础服务需要验证 FastGPT、MongoDB、PostgreSQL + pgvector、Redis、AIProxy 和反向代理均正常运行。模型能力通过 FastGPT 页面完成验证。
 
 资料入库需要验证 PDF、DOCX、TXT、Markdown 和手动文本。问答需要验证单知识库、多知识库和全局问答，并检查回答中的来源是否可理解。

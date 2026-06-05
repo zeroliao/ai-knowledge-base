@@ -18,15 +18,19 @@ ssh sub2api
 sudo bash /opt/fastgpt/bootstrap.sh
 ```
 
-Nginx 策略：
+Caddy 策略：
 
 - `api.zero007.chat` 保持现有 sub2api 配置。
-- `kb.zero007.chat` 新增 server block，反代 FastGPT Web 端口。
+- `kb.zero007.chat` 新增独立站点块，反代 FastGPT Web 端口。
 - `/storage` 不配置静态裸露访问。
 
-HTTPS：
+Caddy 配置和 HTTPS：
 
 ```bash
-sudo certbot --nginx -d kb.zero007.chat
+sudo nano /etc/caddy/Caddyfile
+sudo caddy fmt --overwrite /etc/caddy/Caddyfile
+sudo caddy validate --config /etc/caddy/Caddyfile
+sudo systemctl reload caddy
 ```
 
+Caddy 会自动申请和续期 HTTPS 证书。

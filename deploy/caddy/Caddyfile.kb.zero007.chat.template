@@ -1,0 +1,8 @@
+kb.zero007.chat {
+	reverse_proxy 127.0.0.1:${FASTGPT_WEB_PORT} {
+		header_up Host {host}
+		header_up X-Real-IP {remote_host}
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Proto {scheme}
+	}
+}

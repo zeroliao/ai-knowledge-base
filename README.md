@@ -2,7 +2,15 @@
 
 ## 1. 项目介绍
 
-本项目用于部署一个个人私有 AI 知识库系统。系统基于 FastGPT、PostgreSQL + pgvector、MongoDB、Redis、AIProxy、Nginx 和现有 sub2api / 第三方模型渠道，目标是在 `kb.zero007.chat` 提供可登录访问的知识库服务。
+本项目用于部署一个个人私有 AI 知识库系统。系统基于 FastGPT、PostgreSQL + pgvector、MongoDB、Redis、AIProxy 和 Caddy，目标是在 `kb.zero007.chat` 提供可登录访问的知识库服务。
+
+项目执行策略：
+
+- 本地开发测试优先。
+- 本地验证通过后再部署服务器。
+- `api.zero007.chat` 继续服务 sub2api。
+- `kb.zero007.chat` 通过服务器现有 Caddy 反代 FastGPT。
+- 密钥只放本地 `key.md` 或私有 `.env`，不提交仓库。
 
 项目最终形态：
 
@@ -17,7 +25,7 @@
 - 支持后续扩展 URL、图片、视频资料。
 - 支持 AI 问答、来源引用、原文查看。
 - 支持动态分类推荐，分类由 AI 建议、用户确认。
-- 尽量复用现有腾讯云 CVM、Docker、Nginx、sub2api 和模型 API 额度。
+- 尽量复用现有腾讯云 CVM、Docker、Caddy 和 FastGPT 原有能力。
 
 ## 2. 基础设施
 
@@ -26,7 +34,7 @@
 ```text
 服务器：腾讯云 CVM
 配置：2 Core / 4 GB RAM / 60 GB SSD
-已部署：Docker、Nginx、sub2api
+已部署：Docker、Caddy、sub2api
 现有 API 域名：api.zero007.chat
 知识库域名：kb.zero007.chat
 DNS 托管：Cloudflare
@@ -56,24 +64,21 @@ kb.zero007.chat  -> FastGPT
 ↓
 kb.zero007.chat
 ↓
-Nginx
+Caddy
 ↓
 FastGPT
 ├── MongoDB：业务数据、知识库元数据
 ├── PostgreSQL + pgvector：向量数据
 ├── Redis：缓存
 ├── storage：原始资料和派生文件
-└── AIProxy / 模型渠道
-    ├── sub2api：Chat 模型
-    └── 硅基流动等 OpenAI-compatible 渠道：Embedding 等模型
+└── AIProxy / 模型渠道：通过 FastGPT 页面配置
 ```
 
 V1 不引入重型本地组件：
 
 ```text
 不本地跑 Milvus
-不本地跑本地大模型
-不本地跑本地 embedding 模型
+不本地跑本地大模型或本地向量模型
 不本地跑 Whisper
 不本地跑 Marker / MinerU
 不本地跑浏览器集群
@@ -85,8 +90,7 @@ V1 不引入重型本地组件：
 V1 必须支持：
 
 - FastGPT 可访问、可登录、可配置模型。
-- Chat 模型可调用。
-- Embedding 模型可调用。
+- FastGPT 中已配置的问答和向量化能力可用。
 - PDF、DOCX、TXT、Markdown 上传入库。
 - 手动文本录入。
 - 原始资料保存。
@@ -117,14 +121,16 @@ V2 可扩展：
 
 ### 4.1 无 Web 站点同步权限时导入整站文章
 
-如果 FastGPT 当前没有 Web 站点同步权限，使用项目内置的“站点文章导入器”页面完成导入。用户在页面中填写 sitemap 地址、知识库 ID 和 FastGPT API Key，导入器会自动读取 sitemap、过滤文章 URL，并逐篇调用 FastGPT OpenAPI 创建链接集合。
+如果 FastGPT 当前没有 Web 站点同步权限，目标形态是在 FastGPT 知识库页面内新增“导入 URL 目录”能力，与原有上传文件、创建集合、导入数据的交互保持一致。用户在知识库内选择目标目录后输入 sitemap 地址，系统自动使用当前知识库上下文创建链接集合，不应跳转到割裂的独立项目页面。
+
+当前仓库只保留过早期验证逻辑；正式实现不应依赖独立页面作为用户入口。
 
 适用条件：
 
 - 目标站点提供 `sitemap.xml`。
 - 页面 HTML 可公开访问。
 - FastGPT 可通过 OpenAPI 创建链接集合。
-- 知识库已配置可用的 Embedding 模型。
+- 知识库已配置可用的向量化能力。
 
 以 `https://869hr.uk` 为例，该站点可访问：
 
@@ -135,9 +141,11 @@ https://869hr.uk/sitemap.xml
 界面导入流程：
 
 ```text
-打开站点文章导入器页面
+在知识库页面点击“导入 URL 目录”
 ↓
-填写 FastGPT 地址、API Key、知识库 ID、sitemap 地址
+使用当前知识库和当前目录上下文
+↓
+填写 sitemap 地址和导入参数
 ↓
 预览 sitemap 中发现的文章 URL
 ↓
@@ -147,7 +155,7 @@ https://869hr.uk/sitemap.xml
 ↓
 FastGPT 抓取页面、切分内容并写入知识库
 ↓
-使用硅基流动 Qwen/Qwen3-Embedding-8B 向量化
+FastGPT 完成内容切分和向量化
 ↓
 在页面查看成功和失败明细
 ```
@@ -164,51 +172,29 @@ FastGPT 抓取页面、切分内容并写入知识库
 ```
 
 3. 复制目标知识库 ID。知识库 ID 通常可从页面 URL、接口返回或开发者工具中获得。
-4. 进入 `账号 -> 模型提供商 -> 模型渠道`，确认硅基流动渠道启用。
-5. 进入 `账号 -> 模型提供商 -> 模型配置`，确认 Embedding 模型为：
+4. 确认 FastGPT 页面中已有可用的模型渠道和向量化配置。
+5. 知识库选择当前可用的向量化配置。
 
-```text
-Qwen/Qwen3-Embedding-8B
-```
+#### 4.1.2 正式实现要求
 
-6. 知识库的 Embedding 模型选择硅基流动 `Qwen/Qwen3-Embedding-8B`。
+正式产品入口应内嵌到 FastGPT 知识库页面。当前仓库暂未包含 FastGPT 前端源码，因此这里先定义实现要求：
 
-如果已有知识库使用过其他 Embedding 模型，切换模型后需要重新向量化或重建索引。
+- 入口位置：知识库详情页或当前目录的导入菜单中。
+- 交互形态：复用 FastGPT 现有弹窗、表单、按钮、进度条和任务反馈组件。
+- 上下文：自动使用当前 `datasetId` 和当前目录/集合 ID。
+- 权限：复用 FastGPT 当前登录态和知识库权限，不要求用户重新填写 FastGPT API Key。
+- 参数：用户只填写 sitemap 地址、最大导入数量、单篇间隔、训练模式、分块大小等导入参数。
+- 预览：先展示 sitemap 中解析出的 URL 数量和前若干条 URL。
+- 执行：逐个创建链接集合，并在同一页面显示成功、失败、取消和重试状态。
+- 安全：不在 URL、日志或前端持久化存储中暴露 API Key。
 
-#### 4.1.2 启动站点文章导入器
-
-在项目目录执行：
-
-```powershell
-cd tools\site-importer
-npm install
-npm start
-```
-
-默认访问地址：
-
-```text
-http://127.0.0.1:8787
-```
-
-如果端口被占用，可以指定端口：
-
-```powershell
-$env:PORT=8788
-npm start
-```
-
-导入器不会把 FastGPT API Key 写入文件，只在本次请求中使用。生产环境如果要长期开放该页面，需要放到内网或加登录鉴权，不建议直接公网裸露。
+早期验证逻辑只用于迁移实现时参考，不作为生产入口。
 
 #### 4.1.3 页面填写项
 
-打开导入器页面后填写：
+知识库内置页面需要用户填写：
 
 ```text
-FastGPT 地址：https://kb.zero007.chat
-FastGPT API Key：FastGPT 页面生成的 API Key
-知识库 ID：目标知识库 datasetId
-父集合 ID：可选，不填则导入到知识库根目录
 Sitemap 地址：https://869hr.uk/sitemap.xml
 最大导入数量：0 表示全量；测试时建议先填 5
 单篇间隔：建议 1000ms
@@ -296,9 +282,9 @@ powershell -ExecutionPolicy Bypass -File .\scripts\local\export-sitemap-articles
 ```text
 storage/web/869hr/markdown/
 ```
-## 5. 模型配置
+## 5. 模型配置边界
 
-模型配置优先通过 FastGPT 页面完成，不需要为新增渠道修改项目代码。
+模型配置完全通过 FastGPT 原有页面完成，项目代码和脚本不写入模型渠道、模型名称、Base URL 或 API Key。
 
 页面路径：
 
@@ -307,27 +293,12 @@ storage/web/869hr/markdown/
 账号 -> 模型提供商 -> 模型配置
 ```
 
-Chat：
-
-```text
-渠道：sub2api 或现有 OpenAI-compatible Chat 渠道
-模型：gpt-5.5 或当前可用主力 Chat 模型
-```
-
-Embedding：
-
-```text
-渠道：硅基流动
-Base URL：https://api.siliconflow.cn/v1
-模型：Qwen/Qwen3-Embedding-8B
-```
-
 注意：
 
-- Embedding 模型使用硅基流动的 `Qwen/Qwen3-Embedding-8B`。
-- 新建知识库时选择该 Embedding 模型。
-- 已有知识库切换 Embedding 模型后，需要重新向量化或重建索引，避免新旧向量维度或语义空间不一致。
-- API Key 只放在 FastGPT 页面、`key.md` 或私有 `.env*` 文件中，不提交 Git。
+- 项目文档不固定推荐具体模型或渠道。
+- 新建知识库时在 FastGPT 页面选择当前可用的向量化配置。
+- 切换向量化配置后，已有知识库可能需要重新向量化或重建索引。
+- 模型 API Key 只放在 FastGPT 页面，不提交 Git。
 
 ## 6. 数据存储规范
 
@@ -374,7 +345,7 @@ Base URL：https://api.siliconflow.cn/v1
 
 - 原始文件必须保存。
 - 向量数据只作为检索索引，不作为唯一资料存储。
-- `/storage` 不通过 Nginx 直接裸露到公网。
+- `/storage` 不通过 Caddy 直接裸露到公网。
 - 原文查看必须经过 FastGPT 或应用层鉴权。
 
 ## 7. 分类与问答流程
@@ -422,7 +393,7 @@ AI 推荐相关分类或知识库范围
 ↓
 用户选择推荐范围、手动多选或全局问答
 ↓
-Embedding / 关键词 / 混合检索
+向量 / 关键词 / 混合检索
 ↓
 生成回答
 ↓
@@ -440,12 +411,11 @@ Embedding / 关键词 / 混合检索
 
 ## 8. 本地验证流程
 
-本地验证用于部署前检查 Docker、FastGPT compose、模型接口和验收资料。
+本地验证用于部署前检查 Docker、FastGPT compose、端口和验收资料。
 
 前置条件：
 
 - Docker Desktop 已启动。
-- `key.md` 存在，且包含必要的 OpenAI-compatible Base URL 和 API Key。
 - `key.md`、`.env`、`.env.local` 不提交 Git。
 
 命令：
@@ -453,14 +423,12 @@ Embedding / 关键词 / 混合检索
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\local\prepare.ps1
 powershell -ExecutionPolicy Bypass -File .\scripts\local\start.ps1
-powershell -ExecutionPolicy Bypass -File .\scripts\local\verify.ps1
 ```
 
 脚本职责：
 
 ```text
 prepare.ps1
-- 从 key.md 读取模型配置。
 - 生成私有 .env.local。
 - 自动检测端口冲突。
 - 创建 runtime、storage、logs 等本地运行目录。
@@ -469,11 +437,6 @@ start.ps1
 - 检查 Docker daemon。
 - 下载 FastGPT 官方 PgVector Docker Compose。
 - 使用 .env.local 启动本地 stack。
-
-verify.ps1
-- 检查 Chat 模型调用。
-- 检查 Embedding 模型调用。
-- 不打印 API Key。
 ```
 
 默认端口：
@@ -487,6 +450,10 @@ MongoDB: 27017
 ```
 
 如端口被占用，脚本会自动向后选择可用端口并写入 `.env.local`。
+
+`prepare.ps1` 也会生成本地私有 `runtime/fastgpt/docker-compose.local.override.yml`，用于修正本地 MinIO 外部访问地址。
+
+当前本地 FastGPT Web 入口：`http://127.0.0.1:3000`。
 
 生成验收资料：
 
@@ -508,7 +475,7 @@ tests/fixtures/
 - Cloudflare 中 `kb.zero007.chat` A 记录指向服务器公网 IP。
 - 首次部署建议 `kb.zero007.chat` 使用 `DNS only`。
 - 腾讯云安全组开放 TCP `80` 和 `443`。
-- 服务器 Docker、Docker Compose、Nginx 可用。
+- 服务器 Docker、Docker Compose、Caddy 可用。
 - 当前 sub2api 服务不受部署影响，必要时避开业务高峰。
 
 服务器目录初始化：
@@ -535,10 +502,10 @@ sudo bash /opt/fastgpt/bootstrap.sh
 1. 上传本地验证通过的 Docker Compose、配置文件和必要脚本到 `/opt/fastgpt`。
 2. 在服务器配置 FastGPT、MongoDB、PostgreSQL + pgvector、Redis、AIProxy。
 3. 启动 Docker Compose。
-4. 配置 Nginx，让 `kb.zero007.chat` 反代 FastGPT Web。
+4. 配置 Caddy，让 `kb.zero007.chat` 反代 FastGPT Web。
 5. 保持 `api.zero007.chat` 继续反代现有 sub2api。
 6. 配置 HTTPS 和自动续期。
-7. 登录 FastGPT 页面，配置模型渠道和模型。
+7. 登录 FastGPT 页面，确认模型渠道和模型可用。
 8. 上传测试资料，完成入库、向量化、问答、引用和原文查看验收。
 
 服务器检查脚本：
@@ -554,12 +521,12 @@ sudo bash /opt/fastgpt/check-server.sh
 磁盘空间
 内存
 Docker 版本和容器状态
-Nginx 版本和配置语法
+Caddy 版本和配置语法
 ```
 
-## 10. Nginx 与 HTTPS
+## 10. Caddy 与 HTTPS
 
-`kb.zero007.chat` Nginx 目标：
+`kb.zero007.chat` Caddy 目标：
 
 ```text
 kb.zero007.chat -> 127.0.0.1:${FASTGPT_WEB_PORT}
@@ -567,19 +534,21 @@ kb.zero007.chat -> 127.0.0.1:${FASTGPT_WEB_PORT}
 
 关键配置：
 
-```nginx
-client_max_body_size 100m;
-proxy_http_version 1.1;
-proxy_set_header Upgrade $http_upgrade;
-proxy_set_header Connection "upgrade";
-proxy_read_timeout 300s;
-proxy_send_timeout 300s;
+```caddyfile
+kb.zero007.chat {
+	reverse_proxy 127.0.0.1:${FASTGPT_WEB_PORT}
+	request_body {
+		max_size 100MB
+	}
+}
 ```
 
 HTTPS：
 
 ```bash
-sudo certbot --nginx -d kb.zero007.chat
+sudo caddy fmt --overwrite /etc/caddy/Caddyfile
+sudo caddy validate --config /etc/caddy/Caddyfile
+sudo systemctl reload caddy
 ```
 
 建议：
@@ -600,15 +569,14 @@ sudo certbot --nginx -d kb.zero007.chat
 [ ] PostgreSQL 正常
 [ ] Redis 正常
 [ ] AIProxy 正常
-[ ] sub2api 或模型渠道调用正常
+[ ] FastGPT 模型渠道调用正常
 ```
 
-模型：
+模型能力：
 
 ```text
-[ ] Chat 模型测试通过
-[ ] Embedding 模型测试通过
-[ ] 模型可切换
+[ ] 问答能力测试通过
+[ ] 向量化能力测试通过
 [ ] 失败时有明确错误提示
 ```
 
@@ -655,8 +623,8 @@ docker compose ps
 docker compose logs --tail=200
 df -h
 free -h
-nginx -t
-systemctl status nginx
+caddy validate --config /etc/caddy/Caddyfile
+systemctl status caddy
 ```
 
 重点监控：
@@ -668,10 +636,10 @@ CPU
 Docker 容器状态
 FastGPT 日志
 AIProxy 调用失败率
-模型渠道调用失败率
+FastGPT 模型调用失败率
 PostgreSQL 磁盘占用
 storage 目录大小
-Nginx 证书有效期
+Caddy 证书有效期
 ```
 
 建议告警阈值：
@@ -680,16 +648,16 @@ Nginx 证书有效期
 内存 > 3.5 GB 持续 5 分钟
 CPU > 80% 持续 10 分钟
 磁盘使用率 > 80%
-模型调用失败率 > 10%
+FastGPT 模型调用失败率 > 10%
 容器异常退出
 ```
 
 常见处理：
 
-- 模型测试失败：先在 FastGPT 页面测试模型渠道，再检查 Base URL、API Key、模型 ID。
-- Embedding 模型变更：已有知识库需要重新向量化。
+- 模型测试失败：先在 FastGPT 页面测试模型渠道，再检查页面中的渠道配置。
+- 向量化配置变更：已有知识库可能需要重新向量化。
 - 上传失败：检查 `client_max_body_size`、FastGPT 日志和磁盘空间。
-- WebSocket 或长请求异常：检查 Nginx `Upgrade`、`Connection` 和 timeout 配置。
+- WebSocket 或长请求异常：检查 Caddy 反代配置和 timeout 配置。
 - Docker 镜像拉取失败：换服务器环境拉取、重试、或避开非必要组件。
 
 ## 13. 备份方案
@@ -741,7 +709,7 @@ CPU > 80% 持续 10 分钟
 - 原文查看必须经过登录鉴权。
 - `/storage` 不直接公网裸露。
 
-Nginx：
+Caddy：
 
 - 限制上传大小。
 - 开启 HTTPS。
@@ -765,8 +733,7 @@ V1 必要成本：
 
 ```text
 现有腾讯云服务器成本
-Chat 模型 API 调用额度
-Embedding 模型 API 调用额度
+模型 API 调用额度
 ```
 
 V1 免费或已包含部分：
@@ -774,7 +741,7 @@ V1 免费或已包含部分：
 ```text
 FastGPT 社区版
 Docker
-Nginx
+Caddy
 MongoDB
 PostgreSQL
 pgvector
@@ -788,13 +755,13 @@ Let's Encrypt SSL
 ```text
 腾讯云 COS：原始资料备份或扩容
 服务器快照：部署和升级前建议创建
-Rerank 模型：效果不够时再启用
+重排能力：效果不够时再按需启用
 ```
 
 V2 可能产生费用：
 
 ```text
-图片理解模型调用
+图片理解能力调用
 复杂网页抓取服务
 视频转写服务
 批量爬虫服务
@@ -810,7 +777,7 @@ COS 存储和外网流量
 ```text
 scripts/local/        本地准备、启动、验证和测试资料生成脚本
 deploy/server/        服务器初始化和检查脚本
-deploy/nginx/         Nginx 配置模板
+deploy/caddy/         Caddy 配置模板
 tests/fixtures/       验收测试资料
 ```
 
@@ -837,9 +804,10 @@ GitHub：
 
 ## 17. 长期维护原则
 
-- 模型渠道优先通过 FastGPT 页面配置，除非需要自动化部署，否则不为模型变更改代码。
+- 版本创建、提测、部署、回滚以 `docs/version-management.md` 为准。
+- 模型渠道只通过 FastGPT 页面配置，不为模型变更改代码。
 - 每次新增资料类型前，先明确原始资料保存位置、metadata、引用方式和安全边界。
-- 每次切换 Embedding 模型后，评估是否需要重建已有知识库向量。
+- 每次切换向量化配置后，评估是否需要重建已有知识库向量。
 - 每次上线或升级前创建快照。
 - 每次开放外部抓取能力前，先完成 SSRF 防护。
 - 文档保持“当前可执行状态”，不要保留临时待办、历史阻塞、聊天过程和已过期模型结论。
