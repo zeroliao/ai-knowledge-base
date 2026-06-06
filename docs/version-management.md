@@ -96,6 +96,8 @@ v<version>
 6. 服务器部署：
    - 服务器必须使用同一个 `release/<version>` commit。
    - 上传或拉取同一份部署脚本和 compose override。
+   - 生产镜像必须使用和版本号绑定的固定 tag，禁止使用 `latest`。
+   - 优先通过镜像仓库 pull；临时 tar 部署只允许作为过渡方式，部署后必须清理本地和服务器临时包。
    - 启动或重启服务后检查：
      - `kb.zero007.chat` 可访问。
      - FastGPT 容器正常。
@@ -108,6 +110,7 @@ v<version>
    - 版本状态改为 `成功`。
    - `release/<version>` 合入 `main`。
    - 创建 `v<version>` tag。
+   - 推送 `main` 和 `v<version>`，或在版本记录中说明未推送原因。
    - 将最新 `main` 同步到仍保留的 `dev/<version>`；不再继续开发的 `dev/<version>` 可以删除或归档。
 
 8. 失败：
@@ -148,6 +151,8 @@ README / docs 关键字检查
 - 不允许直接把未经验证的 `dev/<version>` 部署到服务器。
 - `main` 只能接收已成功验证的 `release/<version>`。
 - 模型配置不由项目代码管理；不要为了模型变更修改仓库。
+- 不允许长期依赖服务器临时手改；服务器 compose 变更必须同步回 `deploy/server/`。
+- 不允许提交 `.codex-logs/`、镜像 tar 包、运行缓存或其它临时构建产物。
 
 ## 节点交接信号
 

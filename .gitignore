@@ -11,7 +11,11 @@ storage/
 # Logs and temporary files
 logs/
 tmp/
+.codex-logs/
+artifacts/
 *.log
+*.tar
+*.tar.gz
 
 # OS / editor
 .DS_Store

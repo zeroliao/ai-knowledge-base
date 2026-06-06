@@ -12,6 +12,8 @@ ssh sub2api
 2. Cloudflare 新增 `kb.zero007.chat` A 记录，指向服务器公网 IP。
 3. 确认安全组开放 `80`、`443`。
 
+生产部署规范见 `docs/deployment-standard.md`。每次部署都必须记录版本、镜像 tag、回滚目标、访问验证和日志检查结果。
+
 服务器目录初始化：
 
 ```bash
