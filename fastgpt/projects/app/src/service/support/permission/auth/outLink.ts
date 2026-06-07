@@ -1,0 +1,70 @@
+import { POST } from '@fastgpt/service/common/api/plusRequest';
+import type {
+  AuthOutLinkChatProps,
+  AuthOutLinkLimitProps,
+  AuthOutLinkResponse
+} from '@fastgpt/global/support/outLink/api';
+import { type ShareChatAuthProps } from '@fastgpt/global/support/permission/chat';
+import { authOutLinkValid } from '@fastgpt/service/support/permission/publish/authLink';
+import { AuthUserTypeEnum } from '@fastgpt/global/support/permission/constant';
+import { OutLinkErrEnum } from '@fastgpt/global/common/error/code/outLink';
+import { type OutLinkSchemaType } from '@fastgpt/global/support/outLink/type';
+import { authOutLinkInit } from '@fastgpt/service/support/outLink/runtime/auth';
+
+export function authOutLinkChatLimit(data: AuthOutLinkLimitProps): Promise<AuthOutLinkResponse> {
+  if (!global.feConfigs?.isPlus) return Promise.resolve({ uid: data.outLinkUid });
+  return POST<AuthOutLinkResponse>('/support/outLink/authChatStart', data);
+}
+
+export const authOutLink = async ({
+  shareId,
+  outLinkUid
+}: ShareChatAuthProps): Promise<{
+  uid: string;
+  appId: string;
+  outLinkConfig: OutLinkSchemaType;
+}> => {
+  if (!outLinkUid) {
+    return Promise.reject(OutLinkErrEnum.linkUnInvalid);
+  }
+  const result = await authOutLinkValid({ shareId });
+
+  const { uid } = await authOutLinkInit({
+    outLinkUid,
+    tokenUrl: result.outLinkConfig.limit?.hookUrl
+  });
+
+  return {
+    ...result,
+    uid
+  };
+};
+
+export async function authOutLinkChatStart({
+  shareId,
+  ip,
+  outLinkUid,
+  question
+}: AuthOutLinkChatProps & {
+  shareId: string;
+}) {
+  // get outLink and app
+  const { outLinkConfig, appId } = await authOutLinkValid({ shareId });
+
+  // check ai points and chat limit
+  const { uid } = await authOutLinkChatLimit({ outLink: outLinkConfig, ip, outLinkUid, question });
+
+  return {
+    sourceName: outLinkConfig.name,
+    teamId: outLinkConfig.teamId,
+    tmbId: outLinkConfig.tmbId,
+    authType: AuthUserTypeEnum.token,
+    showCite: outLinkConfig.showCite,
+    showRunningStatus: outLinkConfig.showRunningStatus,
+    showSkillReferences: outLinkConfig.showSkillReferences,
+    showFullText: outLinkConfig.showFullText,
+    canDownloadSource: outLinkConfig.canDownloadSource,
+    appId,
+    uid
+  };
+}

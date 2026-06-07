@@ -1,0 +1,35 @@
+import type { RuntimeNodeItemType } from '@fastgpt/global/core/workflow/runtime/type';
+import type { JSONSchemaInputType } from '@fastgpt/global/core/app/jsonschema';
+import type { ChatNodeUsageType } from '@fastgpt/global/support/wallet/bill/type';
+import z from 'zod';
+import { NodeToolConfigTypeSchema } from '@fastgpt/global/core/workflow/type/node';
+import type { ChatHistoryItemResType } from '@fastgpt/global/core/chat/type';
+
+export type ToolNodeItemType = RuntimeNodeItemType & {
+  toolParams: RuntimeNodeItemType['inputs'];
+  jsonSchema?: JSONSchemaInputType;
+};
+
+export type DispatchSubAppResponse = {
+  response: string; // 返回给 LLM 的响应
+  usages?: ChatNodeUsageType[];
+  nodeResponse?: Omit<ChatHistoryItemResType, 'runningTime' | 'totalPoints' | 'id' | 'nodeId'>; // 部分字段外层会自动根据 usages 计算。
+};
+
+export const SubAppRuntimeSchema = z.object({
+  type: z.enum(['tool', 'workflow', 'toolWorkflow', 'commercialTool']),
+  id: z.string(),
+  name: z.string(),
+  avatar: z.string().optional(),
+  toolDescription: z.string().optional(),
+  version: z.string().optional(),
+  toolConfig: NodeToolConfigTypeSchema.optional(),
+  params: z.record(z.string(), z.any()).optional()
+});
+export type SubAppRuntimeType = z.infer<typeof SubAppRuntimeSchema>;
+
+export type GetSubAppInfoFnType = (id: string) => {
+  name: string;
+  avatar: string;
+  toolDescription: string;
+};

@@ -2,60 +2,46 @@
 
 ## Project Overview
 
-- This repository documents and operates a private AI knowledge base deployment.
-- Production service target: `kb.zero007.chat`, currently based on FastGPT, PostgreSQL + pgvector, MongoDB, Redis, AIProxy, Docker and Caddy.
-- This repo stores docs, scripts, deployment templates and acceptance fixtures. It must not store secrets or runtime data.
-- FastGPT source code lives outside this repo, currently at `C:\Users\Administrator\Desktop\code\FastGPT`.
-- FastGPT is now treated as a private derivative baseline. Do not sync upstream FastGPT code unless the user explicitly requests it.
+- This is the single Git repository for the private AI knowledge base project.
+- Production service target: `kb.zero007.chat`, based on FastGPT, PostgreSQL + pgvector, MongoDB, Redis, AIProxy, Docker and Caddy.
+- `ops/` stores deployment docs, release records, server templates, scripts and acceptance fixtures.
+- `fastgpt/` stores the private FastGPT derivative source code. Do not sync upstream FastGPT unless the user explicitly requests it.
+- `artifacts/` is for local temporary build outputs and must not be committed.
 
 ## Commands
 
 | Task | Command |
 |------|---------|
-| Local prepare | `powershell -ExecutionPolicy Bypass -File .\scripts\local\prepare.ps1` |
-| Local start | `powershell -ExecutionPolicy Bypass -File .\scripts\local\start.ps1` |
-| Generate fixtures | `powershell -ExecutionPolicy Bypass -File .\scripts\local\generate-fixtures.ps1` |
-| Small URL export | `powershell -ExecutionPolicy Bypass -File .\scripts\local\export-sitemap-articles.ps1 -Limit 5 -Overwrite` |
-| Full URL export | `powershell -ExecutionPolicy Bypass -File .\scripts\local\export-sitemap-articles.ps1 -Overwrite` |
-| Server check | `sudo bash /opt/fastgpt/check-server.sh` |
-| Compose config check | `docker compose config` |
+| Ops local prepare | `powershell -ExecutionPolicy Bypass -File .\ops\scripts\local\prepare.ps1` |
+| Ops local start | `powershell -ExecutionPolicy Bypass -File .\ops\scripts\local\start.ps1` |
+| Generate fixtures | `powershell -ExecutionPolicy Bypass -File .\ops\scripts\local\generate-fixtures.ps1` |
+| Small URL export | `powershell -ExecutionPolicy Bypass -File .\ops\scripts\local\export-sitemap-articles.ps1 -Limit 5 -Overwrite` |
+| FastGPT app test | `cd fastgpt; $env:FASTGPT_TEST_SKIP_MONGO='1'; pnpm --filter @fastgpt/app test test/pageComponents/dashboard/agent/utils/appTemplateParse.test.ts` |
+| FastGPT typecheck | `cd fastgpt; pnpm --filter @fastgpt/app typecheck` |
 
-## Project Layout
+## Layout
 
-- `README.md`: Main executable project document and current requirements.
-- `docs/version-management.md`: Version and branch process.
-- `docs/deployment-standard.md`: Production deployment rules.
-- `docs/releases/`: Version records.
-- `deploy/server/`: Server bootstrap, check scripts and compose override.
-- `scripts/local/`: Local prepare/start/fixture/export scripts.
-- `tests/fixtures/`: Acceptance materials for knowledge-base import and Q&A checks.
-- `runtime/`, `storage/`, `logs/`: Local runtime data, ignored by Git.
+- `README.md`: workspace overview.
+- `ops/README.md`: main executable project document and current requirements.
+- `ops/docs/version-management.md`: version and branch process.
+- `ops/docs/deployment-standard.md`: production deployment rules.
+- `ops/docs/releases/`: version records.
+- `ops/deploy/server/`: server bootstrap, check scripts and compose override.
+- `fastgpt/`: FastGPT private derivative source code.
+- `artifacts/`: ignored local artifacts such as image tar files.
 
 ## Conventions
 
-- Default to local-only edits. Do not commit, tag, push or deploy unless the user explicitly asks for that action.
-- When the user says `发版`, execute the version flow: commit the current relevant local changes, create/update the release record, build the fixed-tag FastGPT image, deploy it to the server, verify the service, and record the result.
-- Prefer implementing missing project features in local FastGPT code when feasible. Hide original FastGPT features only when they depend on unavailable paid services, disabled heavy components, external authorization, or unimplemented backend support.
+- Do not commit, tag, push or deploy unless the user explicitly asks.
+- When the user says `发版`, execute the version flow: commit relevant local changes, update release record, build fixed-tag FastGPT image, deploy it to the server, verify service, record the result, then push the single repository.
 - Do not read, print or commit secrets from `key.md`, `.env`, `.env.local` or any `.env.*` file.
 - Model provider, model name, Base URL, API Key and embedding configuration are maintained only in the FastGPT UI, not in repo code or docs.
-- Keep deployment configuration in `deploy/server/` synchronized with real server changes when the user explicitly asks for deployment work.
-- Versioned deployments must follow `docs/version-management.md` and `docs/deployment-standard.md`.
-- For FastGPT custom code changes, work in the FastGPT source repo and record the related FastGPT commit in this repo only when a deployment/version record is requested.
+- Keep deployment configuration in `ops/deploy/server/` synchronized with real server changes when deployment work is requested.
 - Do not expose `/storage` directly through Caddy; original material access must stay behind application authentication.
+- Do not commit runtime data, `node_modules`, `.next`, coverage, logs, image tar files, or local tool state.
 
 ## Verification
 
 - Documentation-only edits: run `git diff --check`.
-- Script edits: run the targeted script with safe/test parameters when possible.
 - Deployment config edits: run `docker compose config` locally or on the server context.
-- FastGPT app changes: verify in the FastGPT repo with targeted tests/typecheck before any deployment.
-
-## External References
-
-| Need | File |
-|------|------|
-| Main project scope | `README.md` |
-| Version process | `docs/version-management.md` |
-| Deployment rules | `docs/deployment-standard.md` |
-| Server deployment notes | `deploy/server/README.md` |
-| Acceptance fixtures | `tests/fixtures/README.md` |
+- FastGPT app changes: verify with targeted tests and typecheck from `fastgpt/`.

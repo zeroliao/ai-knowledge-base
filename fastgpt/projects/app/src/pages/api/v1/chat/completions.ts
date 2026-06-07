@@ -1,0 +1,698 @@
+import type { NextApiRequest, NextApiResponse } from 'next';
+import { authApp } from '@fastgpt/service/support/permission/app/auth';
+import { authCert } from '@fastgpt/service/support/permission/auth/common';
+import { sseErrRes, jsonRes } from '@fastgpt/service/common/response';
+import { getLogger, LogCategories } from '@fastgpt/service/common/logger';
+import { ChatRoleEnum, ChatSourceEnum } from '@fastgpt/global/core/chat/constants';
+import { SseResponseEventEnum } from '@fastgpt/global/core/workflow/runtime/constants';
+import { dispatchWorkFlow } from '@fastgpt/service/core/workflow/dispatch';
+import {
+  getWorkflowEntryNodeIds,
+  getMaxHistoryLimitFromNodes,
+  storeEdges2RuntimeEdges,
+  storeNodes2RuntimeNodes,
+  textAdaptGptResponse,
+  getLastInteractiveValue
+} from '@fastgpt/global/core/workflow/runtime/utils';
+import { GPTMessages2Chats, chatValue2RuntimePrompt } from '@fastgpt/global/core/chat/adapt';
+import { getChatItems } from '@fastgpt/service/core/chat/controller';
+import {
+  type Props as SaveChatProps,
+  pushChatRecords,
+  updateInteractiveChat
+} from '@fastgpt/service/core/chat/saveChat';
+import { responseWrite } from '@fastgpt/service/common/response';
+import { authOutLinkChatStart } from '@/service/support/permission/auth/outLink';
+import { recordAppUsage } from '@fastgpt/service/core/app/record/utils';
+import { pushResult2Remote, addOutLinkUsage } from '@fastgpt/service/support/outLink/tools';
+import { getUsageSourceByAuthType } from '@fastgpt/global/support/wallet/usage/tools';
+import { authTeamSpaceToken } from '@/service/support/permission/auth/team';
+import {
+  concatHistories,
+  filterPublicNodeResponseData,
+  getChatTitleFromChatMessage,
+  removeAIResponseCite,
+  removeEmptyUserInput
+} from '@fastgpt/global/core/chat/utils';
+import { updateApiKeyUsage } from '@fastgpt/service/support/openapi/tools';
+import { getRunningUserInfoByTmbId } from '@fastgpt/service/support/user/team/utils';
+import { AuthUserTypeEnum } from '@fastgpt/global/support/permission/constant';
+import { MongoApp } from '@fastgpt/service/core/app/schema';
+import { type AuthOutLinkChatProps } from '@fastgpt/global/support/outLink/api';
+import { MongoChat } from '@fastgpt/service/core/chat/chatSchema';
+import { ChatErrEnum } from '@fastgpt/global/common/error/code/chat';
+import { type AIChatItemType, type UserChatItemType } from '@fastgpt/global/core/chat/type';
+import { DispatchNodeResponseKeyEnum } from '@fastgpt/global/core/workflow/runtime/constants';
+import type { AuthResponseType } from '@fastgpt/global/openapi/core/chat/completion/api';
+import { CompletionsPropsSchema } from '@fastgpt/global/openapi/core/chat/completion/api';
+import { NextAPI } from '@/service/middleware/entry';
+import { getAppLatestVersion } from '@fastgpt/service/core/app/version/controller';
+import { ReadPermissionVal } from '@fastgpt/global/support/permission/constant';
+import { AppTypeEnum } from '@fastgpt/global/core/app/constants';
+import {
+  serverGetWorkflowToolRunUserQuery,
+  updateWorkflowToolInputByVariables
+} from '@fastgpt/service/core/app/tool/workflowTool/utils';
+import { getNanoid } from '@fastgpt/global/common/string/tools';
+import { rewriteNodeOutputByHistories } from '@fastgpt/global/core/workflow/runtime/utils';
+import { getWorkflowResponseWrite } from '@fastgpt/service/core/workflow/dispatch/utils';
+import { WORKFLOW_MAX_RUN_TIMES } from '@fastgpt/service/core/workflow/constants';
+import { getWorkflowToolInputsFromStoreNodes } from '@fastgpt/global/core/app/tool/workflowTool/utils';
+import { UserError } from '@fastgpt/global/common/error/utils';
+import { getLocale } from '@fastgpt/service/common/middle/i18n';
+import { formatTime2YMDHM } from '@fastgpt/global/common/string/time';
+import { LimitTypeEnum, teamFrequencyLimit } from '@fastgpt/service/common/api/frequencyLimit';
+import { getIpFromRequest } from '@fastgpt/service/common/geo';
+import { pushTrack } from '@fastgpt/service/common/middle/tracks/utils';
+import { parseApiInput } from '@fastgpt/service/common/zod/requestParseError';
+import { validateChatRoundDataIds } from '@fastgpt/service/core/chat/dataIdValidation';
+
+const logger = getLogger(LogCategories.MODULE.CHAT.ITEM);
+
+async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const { body: completionProps } = parseApiInput({ req, bodySchema: CompletionsPropsSchema });
+  const {
+    chatId,
+    appId,
+    customUid,
+    // share chat
+    shareId,
+    outLinkUid,
+    // team chat
+    teamId: spaceTeamId,
+    teamToken,
+
+    stream = false,
+    showSkillReferences,
+    messages = [],
+    responseChatItemId = getNanoid(),
+    metadata
+  } = completionProps;
+  let { detail = false, retainDatasetCite = false, variables = {} } = completionProps;
+
+  const startTime = Date.now();
+
+  const originIp = getIpFromRequest(req);
+
+  try {
+    if (!Array.isArray(messages)) {
+      throw new Error('messages is not array');
+    }
+
+    /*
+      Web params: chatId + [Human]
+      API params: chatId + [Human]
+      API params: [histories, Human]
+    */
+    const chatMessages = GPTMessages2Chats({ messages });
+
+    // Computed start hook params
+    const startHookText = (() => {
+      // Chat
+      const userQuestion = chatMessages[chatMessages.length - 1] as UserChatItemType;
+      if (userQuestion) return chatValue2RuntimePrompt(userQuestion.value).text;
+
+      // plugin
+      return JSON.stringify(variables);
+    })();
+
+    /*
+      1. auth app permission
+      2. auth balance
+      3. get app
+      4. parse outLink token
+    */
+    const {
+      teamId,
+      tmbId,
+      app,
+      showCite,
+      authType,
+      sourceName,
+      apikey,
+      responseAllData,
+      outLinkUserId = customUid,
+      showRunningStatus,
+      showSkillReferences: authShowSkillReferences
+    } = await (async () => {
+      // share chat
+      if (shareId && outLinkUid) {
+        return authShareChat({
+          shareId,
+          outLinkUid,
+          chatId,
+          ip: originIp,
+          question: startHookText
+        });
+      }
+      // team space chat
+      if (spaceTeamId && appId && teamToken) {
+        return authTeamSpaceChat({
+          teamId: spaceTeamId,
+          teamToken,
+          appId,
+          chatId
+        });
+      }
+
+      /* parse req: api or token */
+      return authHeaderRequest({
+        req,
+        appId,
+        chatId
+      });
+    })();
+
+    if (
+      !(await teamFrequencyLimit({
+        teamId,
+        type: LimitTypeEnum.chat,
+        res
+      }))
+    ) {
+      return;
+    }
+
+    pushTrack.teamChatQPM({ teamId });
+
+    retainDatasetCite = retainDatasetCite && !!showCite;
+    const finalShowSkillReferences =
+      (showSkillReferences ?? authShowSkillReferences ?? false) && !!showRunningStatus;
+    const isPlugin = app.type === AppTypeEnum.workflowTool;
+
+    // Check message type
+    if (isPlugin) {
+      detail = true;
+    } else {
+      if (messages.length === 0) {
+        throw new UserError('messages is empty');
+      }
+    }
+
+    // Get obj=Human history
+    const userQuestion: UserChatItemType = (() => {
+      if (isPlugin) {
+        return serverGetWorkflowToolRunUserQuery({
+          pluginInputs: getWorkflowToolInputsFromStoreNodes(app.modules),
+          variables,
+          files: variables.files
+        });
+      }
+
+      const latestHumanChat = chatMessages.pop() as UserChatItemType | undefined;
+      if (!latestHumanChat) {
+        throw new Error('User question is empty');
+      }
+      return latestHumanChat;
+    })();
+
+    // Get and concat history;
+    const limit = getMaxHistoryLimitFromNodes(app.modules);
+    const [{ histories }, { versionId, nodes, edges, chatConfig }, chatDetail] = await Promise.all([
+      getChatItems({
+        appId: app._id,
+        chatId,
+        offset: 0,
+        limit,
+        field: `obj value nodeOutputs`
+      }),
+      getAppLatestVersion(app._id, app),
+      MongoChat.findOne({ appId: app._id, chatId }, 'source variableList variables')
+    ]);
+
+    // Get store variables(Api variable precedence)
+    if (chatDetail?.variables) {
+      variables = {
+        ...chatDetail.variables,
+        ...variables
+      };
+    }
+
+    // Get chat histories
+    const newHistories = concatHistories(histories, chatMessages);
+    const interactive = getLastInteractiveValue(newHistories) || undefined;
+
+    // Get runtimeNodes
+    let runtimeNodes = storeNodes2RuntimeNodes(nodes, getWorkflowEntryNodeIds(nodes, interactive));
+    if (isPlugin) {
+      // Assign values to runtimeNodes using variables
+      runtimeNodes = updateWorkflowToolInputByVariables(runtimeNodes, variables);
+      // Plugin runtime does not need global variables(It has been injected into the pluginInputNode)
+      variables = {};
+    }
+    runtimeNodes = rewriteNodeOutputByHistories(runtimeNodes, interactive);
+
+    const saveChatId = chatId || getNanoid(24);
+    await validateChatRoundDataIds({
+      appId: String(app._id),
+      chatId: saveChatId,
+      userContent: userQuestion,
+      responseChatItemId
+    });
+
+    const source = (() => {
+      if (shareId) {
+        return ChatSourceEnum.share;
+      }
+      if (authType === 'apikey') {
+        return ChatSourceEnum.api;
+      }
+      if (spaceTeamId) {
+        return ChatSourceEnum.team;
+      }
+      return ChatSourceEnum.online;
+    })();
+
+    const workflowResponseWrite = getWorkflowResponseWrite({
+      res,
+      detail,
+      streamResponse: stream,
+      id: chatId,
+      showNodeStatus: showRunningStatus
+    });
+
+    /* start flow controller */
+    const {
+      flowResponses,
+      flowUsages,
+      assistantResponses,
+      newVariables,
+      durationSeconds,
+      system_memories,
+      customFeedbacks
+    } = await (async () => {
+      if (app.version === 'v2') {
+        return dispatchWorkFlow({
+          apiVersion: 'v1',
+          req,
+          res,
+          lang: getLocale(req),
+          requestOrigin: req.headers.origin,
+          mode: 'chat',
+
+          usageSource: getUsageSourceByAuthType({ shareId, authType }),
+          runningAppInfo: {
+            id: String(app._id),
+            name: app.name,
+            teamId: String(app.teamId),
+            tmbId: String(app.tmbId)
+          },
+          runningUserInfo: await getRunningUserInfoByTmbId(tmbId),
+          uid: String(outLinkUserId || tmbId),
+
+          chatId: saveChatId,
+          responseChatItemId,
+          runtimeNodes,
+          runtimeEdges: storeEdges2RuntimeEdges(edges, interactive),
+          variables,
+          query: removeEmptyUserInput(userQuestion.value),
+          lastInteractive: interactive,
+          chatConfig,
+          histories: newHistories,
+          stream,
+          retainDatasetCite,
+          showSkillReferences: finalShowSkillReferences,
+          maxRunTimes: WORKFLOW_MAX_RUN_TIMES,
+          workflowStreamResponse: workflowResponseWrite
+        });
+      }
+      return Promise.reject('您的工作流版本过低，请重新发布一次');
+    })();
+
+    // save chat
+    const newTitle = isPlugin
+      ? variables.cTime || formatTime2YMDHM(new Date())
+      : getChatTitleFromChatMessage(userQuestion);
+
+    const aiResponse: AIChatItemType & { dataId?: string } = {
+      dataId: responseChatItemId,
+      obj: ChatRoleEnum.AI,
+      value: assistantResponses,
+      [DispatchNodeResponseKeyEnum.nodeResponse]: flowResponses,
+      memories: system_memories,
+      customFeedbacks
+    };
+
+    const params: SaveChatProps = {
+      chatId: saveChatId,
+      appId: app._id,
+      versionId,
+      teamId,
+      tmbId: tmbId,
+      nodes,
+      appChatConfig: chatConfig,
+      variables: newVariables,
+      newTitle,
+      shareId,
+      outLinkUid: outLinkUserId,
+      source,
+      sourceName: sourceName || '',
+      userContent: userQuestion,
+      aiContent: aiResponse,
+      metadata: {
+        ...metadata,
+        originIp
+      },
+      durationSeconds
+    };
+    if (interactive) {
+      await updateInteractiveChat({ interactive, ...params });
+    } else {
+      await pushChatRecords(params);
+    }
+
+    const isOwnerUse = !shareId && !spaceTeamId && String(tmbId) === String(app.tmbId);
+    if (isOwnerUse && source === ChatSourceEnum.online) {
+      await recordAppUsage({
+        appId: app._id,
+        tmbId,
+        teamId
+      });
+    }
+
+    logger.info(`completions running time: ${(Date.now() - startTime) / 1000}s`);
+
+    /* select fe response field */
+    const feResponseData = responseAllData
+      ? flowResponses
+      : filterPublicNodeResponseData({ nodeRespones: flowResponses, responseDetail: showCite });
+    if (stream) {
+      workflowResponseWrite({
+        event: SseResponseEventEnum.answer,
+        data: textAdaptGptResponse({
+          text: null,
+          finish_reason: 'stop'
+        })
+      });
+      // 特殊输配(data 不是{})
+      if (detail) {
+        responseWrite({
+          res,
+          event: SseResponseEventEnum.flowResponses,
+          data: JSON.stringify(feResponseData)
+        });
+      }
+
+      responseWrite({
+        res,
+        event: detail ? SseResponseEventEnum.answer : undefined,
+        data: '[DONE]'
+      });
+
+      res.end();
+    } else {
+      const formatResponseContent = removeAIResponseCite(assistantResponses, retainDatasetCite);
+      const formattdResponse = (() => {
+        if (formatResponseContent.length === 0)
+          return {
+            reasoning: '',
+            content: ''
+          };
+        if (formatResponseContent.length === 1) {
+          return {
+            reasoning: formatResponseContent[0].reasoning?.content,
+            content: formatResponseContent[0].text?.content
+          };
+        }
+
+        if (!detail) {
+          return {
+            reasoning: formatResponseContent
+              .map((item) => item?.reasoning?.content)
+              .filter(Boolean)
+              .join('\n'),
+            content: formatResponseContent
+              .map((item) => item?.text?.content)
+              .filter(Boolean)
+              .join('\n')
+          };
+        }
+
+        return formatResponseContent;
+      })();
+
+      const error =
+        flowResponses[flowResponses.length - 1]?.error ||
+        flowResponses[flowResponses.length - 1]?.errorText;
+
+      res.json({
+        ...(detail ? { responseData: feResponseData, newVariables } : {}),
+        error,
+        id: saveChatId,
+        model: '',
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 1 },
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              ...(Array.isArray(formattdResponse)
+                ? {
+                    content: formattdResponse.map((item) => {
+                      // Add value type(适配旧版)
+                      enum ChatItemValueTypeEnum {
+                        text = 'text',
+                        file = 'file',
+                        tool = 'tool',
+                        interactive = 'interactive',
+                        reasoning = 'reasoning'
+                      }
+                      const type = (() => {
+                        if (item.text) return ChatItemValueTypeEnum.text;
+                        if ('file' in item) return ChatItemValueTypeEnum.file;
+                        if ('tool' in item || 'tools' in item) return ChatItemValueTypeEnum.tool;
+                        if ('interactive' in item) return ChatItemValueTypeEnum.interactive;
+                        if ('reasoning' in item) return ChatItemValueTypeEnum.reasoning;
+                        return ChatItemValueTypeEnum.text;
+                      })();
+                      return {
+                        ...item,
+                        type
+                      };
+                    })
+                  }
+                : {
+                    content: formattdResponse.content,
+                    ...(formattdResponse.reasoning && {
+                      reasoning_content: formattdResponse.reasoning
+                    })
+                  })
+            },
+            finish_reason: 'stop',
+            index: 0
+          }
+        ]
+      });
+    }
+
+    const totalPoints = flowUsages.reduce((sum, item) => sum + (item.totalPoints || 0), 0);
+    if (shareId) {
+      pushResult2Remote({
+        outLinkUid,
+        shareId,
+        appName: app.name,
+        flowResponses,
+        chatId: saveChatId
+      });
+      addOutLinkUsage({
+        shareId,
+        totalPoints
+      });
+    }
+    if (apikey) {
+      updateApiKeyUsage({
+        apikey,
+        totalPoints
+      });
+    }
+  } catch (err) {
+    if (stream) {
+      sseErrRes(res, err);
+      res.end();
+    } else {
+      jsonRes(res, {
+        code: 500,
+        error: err
+      });
+    }
+  }
+}
+export default NextAPI(handler);
+
+const authShareChat = async ({
+  chatId,
+  ...data
+}: AuthOutLinkChatProps & {
+  shareId: string;
+  chatId?: string;
+}): Promise<AuthResponseType> => {
+  const {
+    teamId,
+    tmbId,
+    appId,
+    authType,
+    showCite,
+    showRunningStatus,
+    showSkillReferences,
+    uid,
+    sourceName
+  } = await authOutLinkChatStart(data);
+  const app = await MongoApp.findById(appId).lean();
+
+  if (!app) {
+    return Promise.reject('app is empty');
+  }
+
+  // get chat
+  const chat = await MongoChat.findOne({ appId, chatId }).lean();
+  if (chat && (chat.shareId !== data.shareId || chat.outLinkUid !== uid)) {
+    return Promise.reject(ChatErrEnum.unAuthChat);
+  }
+
+  return {
+    sourceName,
+    teamId,
+    tmbId,
+    app,
+    apikey: '',
+    authType,
+    responseAllData: false,
+    showCite,
+    outLinkUserId: uid,
+    showRunningStatus,
+    showSkillReferences
+  };
+};
+const authTeamSpaceChat = async ({
+  appId,
+  teamId,
+  teamToken,
+  chatId
+}: {
+  appId: string;
+  teamId: string;
+  teamToken: string;
+  chatId?: string;
+}): Promise<AuthResponseType> => {
+  const { uid, tags } = await authTeamSpaceToken({
+    teamId,
+    teamToken
+  });
+
+  const app = await MongoApp.findOne({
+    _id: appId,
+    teamId,
+    $or: [{ teamTags: { $size: 0 } }, { teamTags: { $exists: false } }, { teamTags: { $in: tags } }]
+  }).lean();
+  if (!app) {
+    return Promise.reject(ChatErrEnum.unAuthChat);
+  }
+
+  const chat = chatId ? await MongoChat.findOne({ appId, chatId }).lean() : null;
+
+  if (chat && (String(chat.teamId) !== teamId || chat.outLinkUid !== uid)) {
+    return Promise.reject(ChatErrEnum.unAuthChat);
+  }
+
+  return {
+    teamId,
+    tmbId: app.tmbId,
+    app,
+    authType: AuthUserTypeEnum.outLink,
+    apikey: '',
+    responseAllData: false,
+    showCite: true,
+    showSkillReferences: true,
+    outLinkUserId: uid
+  };
+};
+const authHeaderRequest = async ({
+  req,
+  appId,
+  chatId
+}: {
+  req: NextApiRequest;
+  appId?: string;
+  chatId?: string;
+}): Promise<AuthResponseType> => {
+  const {
+    appId: apiKeyAppId,
+    teamId,
+    tmbId,
+    authType,
+    sourceName,
+    apikey
+  } = await authCert({
+    req,
+    authToken: true,
+    authApiKey: true
+  });
+
+  const { app } = await (async () => {
+    if (authType === AuthUserTypeEnum.apikey) {
+      const currentAppId = apiKeyAppId || appId;
+      if (!currentAppId) {
+        return Promise.reject(
+          'Key is error. You need to use the app key rather than the account key.'
+        );
+      }
+      const app = await MongoApp.findOne({ _id: currentAppId, teamId });
+
+      if (!app) {
+        return Promise.reject('app is empty');
+      }
+
+      appId = String(app._id);
+
+      return {
+        app
+      };
+    } else {
+      // token_auth
+      if (!appId) {
+        return Promise.reject('appId is empty');
+      }
+      const { app } = await authApp({
+        req,
+        authToken: true,
+        appId,
+        per: ReadPermissionVal
+      });
+
+      return {
+        app
+      };
+    }
+  })();
+
+  const chat = await MongoChat.findOne({ appId, chatId }).lean();
+
+  if (
+    chat &&
+    (String(chat.teamId) !== teamId ||
+      // There's no need to distinguish who created it if it's apiKey auth
+      (authType === AuthUserTypeEnum.token && String(chat.tmbId) !== tmbId))
+  ) {
+    return Promise.reject(ChatErrEnum.unAuthChat);
+  }
+
+  return {
+    teamId,
+    tmbId,
+    app,
+    apikey,
+    authType,
+    sourceName,
+    responseAllData: true,
+    showCite: true,
+    showSkillReferences: true
+  };
+};
+
+export const config = {
+  api: {
+    bodyParser: {
+      sizeLimit: '20mb'
+    },
+    responseLimit: '20mb'
+  }
+};

@@ -1,23 +1,63 @@
 # Secrets
 key.md
 .env
-.env.*
+.env.local
+.env.*.local
 !.env.example
+!.env.template
+!**/.env.template
 
-# Local FastGPT runtime files
-runtime/
-storage/
-
-# Logs and temporary files
-logs/
-tmp/
-.codex-logs/
-artifacts/
-*.log
+# Workspace artifacts
+artifacts/*
+!artifacts/.gitkeep
 *.tar
 *.tar.gz
+*.tgz
+*.zip
+
+# Runtime data
+/runtime/
+/storage/
+/logs/
+/tmp/
+ops/runtime/
+ops/storage/
+ops/logs/
+ops/tmp/
+
+# FastGPT dependencies and build outputs
+fastgpt/node_modules/
+fastgpt/**/node_modules/
+fastgpt/.next/
+fastgpt/**/.next/
+fastgpt/.turbo/
+fastgpt/**/.turbo/
+fastgpt/coverage/
+fastgpt/**/coverage/
+fastgpt/dist/
+fastgpt/**/dist/
+fastgpt/out/
+fastgpt/**/out/
+fastgpt/local/
+fastgpt/**/local/
+fastgpt/projects/app/worker/
+fastgpt/pro/admin/worker/
+fastgpt/projects/app/next-env.d.ts
+fastgpt/*.tsbuildinfo
+fastgpt/**/*.tsbuildinfo
+
+# Logs and local tool state
+*.log
+.codex-logs/
+fastgpt/.codex-logs/
+.playwright-cli/
+fastgpt/.playwright-cli/
+.antigravitycli/
+fastgpt/.antigravitycli/
+.vercel/
 
 # OS / editor
 .DS_Store
 Thumbs.db
 .vscode/
+.idea/

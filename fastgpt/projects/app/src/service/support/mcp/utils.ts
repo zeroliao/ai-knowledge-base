@@ -1,0 +1,310 @@
+import { MongoMcpKey } from '@fastgpt/service/support/mcp/schema';
+import { CommonErrEnum } from '@fastgpt/global/common/error/code/common';
+import { MongoApp } from '@fastgpt/service/core/app/schema';
+import { getAppLatestVersion } from '@fastgpt/service/core/app/version/controller';
+import { type Tool } from '@modelcontextprotocol/sdk/types.js';
+import { FlowNodeTypeEnum } from '@fastgpt/global/core/workflow/node/constant';
+import { toolValueTypeList, valueTypeJsonSchemaMap } from '@fastgpt/global/core/workflow/constants';
+import { type AppChatConfigType } from '@fastgpt/global/core/app/type';
+import { AppTypeEnum } from '@fastgpt/global/core/app/constants';
+import { type FlowNodeInputItemType } from '@fastgpt/global/core/workflow/type/io';
+import { type toolCallProps } from './type';
+import { type AppSchemaType } from '@fastgpt/global/core/app/type';
+import { getRunningUserInfoByTmbId } from '@fastgpt/service/support/user/team/utils';
+import { getNanoid } from '@fastgpt/global/common/string/tools';
+import { type AIChatItemType, type UserChatItemType } from '@fastgpt/global/core/chat/type';
+import {
+  serverGetWorkflowToolRunUserQuery,
+  updateWorkflowToolInputByVariables
+} from '@fastgpt/service/core/app/tool/workflowTool/utils';
+import { getWorkflowToolInputsFromStoreNodes } from '@fastgpt/global/core/app/tool/workflowTool/utils';
+import {
+  ChatFileTypeEnum,
+  ChatRoleEnum,
+  ChatSourceEnum
+} from '@fastgpt/global/core/chat/constants';
+import {
+  getWorkflowEntryNodeIds,
+  storeEdges2RuntimeEdges,
+  storeNodes2RuntimeNodes
+} from '@fastgpt/global/core/workflow/runtime/utils';
+import { WORKFLOW_MAX_RUN_TIMES } from '@fastgpt/service/core/workflow/constants';
+import { dispatchWorkFlow } from '@fastgpt/service/core/workflow/dispatch';
+import { getChatTitleFromChatMessage, removeEmptyUserInput } from '@fastgpt/global/core/chat/utils';
+import { pushChatRecords } from '@fastgpt/service/core/chat/saveChat';
+import { DispatchNodeResponseKeyEnum } from '@fastgpt/global/core/workflow/runtime/constants';
+import { UsageSourceEnum } from '@fastgpt/global/support/wallet/usage/constants';
+import { removeDatasetCiteText } from '@fastgpt/global/core/ai/llm/utils';
+
+export const pluginNodes2InputSchema = (
+  nodes: { flowNodeType: FlowNodeTypeEnum; inputs: FlowNodeInputItemType[] }[]
+) => {
+  const pluginInput = nodes.find((node) => node.flowNodeType === FlowNodeTypeEnum.pluginInput);
+
+  const schema: Tool['inputSchema'] = {
+    type: 'object',
+    properties: {},
+    required: []
+  };
+
+  pluginInput?.inputs.forEach((input) => {
+    const jsonSchema = input.valueType
+      ? valueTypeJsonSchemaMap[input.valueType] || toolValueTypeList[0].jsonSchema
+      : toolValueTypeList[0].jsonSchema;
+
+    schema.properties![input.key] = {
+      ...jsonSchema,
+      description: input.description,
+      enum: input.enum?.split('\n').filter(Boolean) || undefined
+    };
+
+    if (input.required) {
+      // @ts-ignore
+      schema.required.push(input.key);
+    }
+  });
+
+  return schema;
+};
+export const workflow2InputSchema = (chatConfig?: {
+  fileSelectConfig?: AppChatConfigType['fileSelectConfig'];
+  variables?: AppChatConfigType['variables'];
+}) => {
+  const schema: Tool['inputSchema'] = {
+    type: 'object',
+    properties: {
+      question: {
+        type: 'string',
+        description: 'Question from user'
+      },
+      ...(chatConfig?.fileSelectConfig?.canSelectFile || chatConfig?.fileSelectConfig?.canSelectImg
+        ? {
+            fileUrlList: {
+              type: 'array',
+              items: {
+                type: 'string'
+              },
+              description: 'File linkage'
+            }
+          }
+        : {})
+    },
+    required: ['question']
+  };
+
+  chatConfig?.variables?.forEach((item) => {
+    const jsonSchema = item.valueType
+      ? valueTypeJsonSchemaMap[item.valueType] || toolValueTypeList[0].jsonSchema
+      : toolValueTypeList[0].jsonSchema;
+
+    schema.properties![item.key] = {
+      ...jsonSchema,
+      description: item.description,
+      enum: item.enums?.map((enumItem) => enumItem.value) || undefined
+    };
+
+    if (item.required) {
+      // @ts-ignore
+      schema.required!.push(item.key);
+    }
+  });
+
+  return schema;
+};
+/**
+ * 获取 MCP key 当前绑定的工具列表。
+ *
+ * MCP key 在创建或更新绑定应用时已经完成权限校验；运行时按 key 中保存的应用快照提供工具，
+ * 不再因为创建人的应用权限后续变化而隐藏工具，避免已发布集成被普通权限调整意外中断。
+ */
+export const getMcpServerTools = async (key: string): Promise<Tool[]> => {
+  const mcp = await MongoMcpKey.findOne({ key }, { apps: 1 }).lean();
+  if (!mcp) {
+    return Promise.reject(CommonErrEnum.invalidResource);
+  }
+
+  // Get app list
+  const appList = await MongoApp.find(
+    {
+      _id: { $in: mcp.apps.map((app) => app.appId) },
+      type: {
+        $in: [AppTypeEnum.simple, AppTypeEnum.workflow, AppTypeEnum.workflowTool]
+      }
+    },
+    { name: 1, intro: 1 }
+  ).lean();
+
+  // Get latest version
+  const versionList = await Promise.all(appList.map((app) => getAppLatestVersion(app._id, app)));
+
+  // Compute mcp tools
+  const tools = versionList.map<Tool>((version, index) => {
+    const app = appList[index];
+    const mcpApp = mcp.apps.find((mcpApp) => String(mcpApp.appId) === String(app._id))!;
+
+    const isPlugin = !!version.nodes.find(
+      (node) => node.flowNodeType === FlowNodeTypeEnum.pluginInput
+    );
+
+    return {
+      name: mcpApp.toolName,
+      description: mcpApp.description,
+      inputSchema: isPlugin
+        ? pluginNodes2InputSchema(version.nodes)
+        : workflow2InputSchema(version.chatConfig)
+    };
+  });
+
+  return tools;
+};
+
+/**
+ * 调用 MCP key 已绑定的工具。
+ *
+ * 这里延续 MCP key 的绑定快照语义：调用时只校验 key 和 toolName 是否存在于绑定关系中，
+ * 不根据创建人的实时应用权限再次拒绝执行；如需撤销 MCP 访问，应更新或删除对应 MCP key。
+ */
+export const callMcpServerTool = async ({ key, toolName, inputs }: toolCallProps) => {
+  const dispatchApp = async (app: AppSchemaType, variables: Record<string, any>) => {
+    const isPlugin = app.type === AppTypeEnum.workflowTool;
+
+    // Get app latest version
+    const { versionId, nodes, edges, chatConfig } = await getAppLatestVersion(app._id, app);
+
+    const userQuestion: UserChatItemType = (() => {
+      if (isPlugin) {
+        return serverGetWorkflowToolRunUserQuery({
+          pluginInputs: getWorkflowToolInputsFromStoreNodes(nodes || app.modules),
+          variables
+        });
+      }
+      return {
+        obj: ChatRoleEnum.Human,
+        value: [
+          ...(variables.fileUrlList || []).map((url: string) => ({
+            file: {
+              type: ChatFileTypeEnum.file,
+              name: url,
+              url: url
+            }
+          })),
+          {
+            text: {
+              content: variables.question
+            }
+          }
+        ]
+      };
+    })();
+
+    let runtimeNodes = storeNodes2RuntimeNodes(nodes, getWorkflowEntryNodeIds(nodes));
+    if (isPlugin) {
+      // Assign values to runtimeNodes using variables
+      runtimeNodes = updateWorkflowToolInputByVariables(runtimeNodes, variables);
+      // Plugin runtime does not need global variables(It has been injected into the pluginInputNode)
+      variables = {};
+    } else {
+      delete variables.question;
+      delete variables.fileUrlList;
+    }
+
+    const chatId = getNanoid();
+
+    const { assistantResponses, newVariables, flowResponses, durationSeconds, system_memories } =
+      await dispatchWorkFlow({
+        chatId,
+        mode: 'chat',
+        usageSource: UsageSourceEnum.mcp,
+        runningAppInfo: {
+          id: String(app._id),
+          name: app.name,
+          teamId: String(app.teamId),
+          tmbId: String(app.tmbId)
+        },
+        runningUserInfo: await getRunningUserInfoByTmbId(app.tmbId),
+        uid: String(app.tmbId),
+        runtimeNodes,
+        runtimeEdges: storeEdges2RuntimeEdges(edges),
+        variables,
+        query: removeEmptyUserInput(userQuestion.value),
+        chatConfig,
+        histories: [],
+        stream: false,
+        maxRunTimes: WORKFLOW_MAX_RUN_TIMES
+      });
+
+    // Save chat
+    const aiResponse: AIChatItemType & { dataId?: string } = {
+      obj: ChatRoleEnum.AI,
+      value: assistantResponses,
+      [DispatchNodeResponseKeyEnum.nodeResponse]: flowResponses,
+      memories: system_memories
+    };
+    const newTitle = isPlugin ? 'Mcp call' : getChatTitleFromChatMessage(userQuestion);
+    await pushChatRecords({
+      chatId,
+      appId: app._id,
+      versionId,
+      teamId: app.teamId,
+      tmbId: app.tmbId,
+      nodes,
+      appChatConfig: chatConfig,
+      variables: newVariables,
+      newTitle,
+      source: ChatSourceEnum.mcp,
+      userContent: userQuestion,
+      aiContent: aiResponse,
+      durationSeconds
+    });
+
+    // Get MCP response type
+    let responseContent = (() => {
+      if (isPlugin) {
+        const output = flowResponses.find(
+          (item) => item.moduleType === FlowNodeTypeEnum.pluginOutput
+        );
+        if (output) {
+          return JSON.stringify(output.pluginOutput);
+        } else {
+          return 'Can not get response from plugin';
+        }
+      }
+
+      return assistantResponses
+        .map((item) => item?.text?.content)
+        .filter(Boolean)
+        .join('\n');
+    })();
+
+    // Format response content
+    responseContent = removeDatasetCiteText(responseContent.trim(), false);
+
+    return responseContent;
+  };
+
+  const mcp = await MongoMcpKey.findOne({ key }, { apps: 1 }).lean();
+
+  if (!mcp) {
+    return Promise.reject(CommonErrEnum.invalidResource);
+  }
+
+  // Get app list
+  const appList = await MongoApp.find({
+    _id: { $in: mcp.apps.map((app) => app.appId) },
+    type: {
+      $in: [AppTypeEnum.simple, AppTypeEnum.workflow, AppTypeEnum.workflowTool]
+    }
+  }).lean();
+
+  const app = appList.find((app) => {
+    const mcpApp = mcp.apps.find((mcpApp) => String(mcpApp.appId) === String(app._id))!;
+
+    return toolName === mcpApp.toolName;
+  });
+
+  if (!app) {
+    return Promise.reject(CommonErrEnum.missingParams);
+  }
+
+  return await dispatchApp(app, inputs);
+};

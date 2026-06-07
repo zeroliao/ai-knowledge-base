@@ -1,0 +1,130 @@
+/* Abandoned */
+import type { ChatItemMiniType } from '@fastgpt/global/core/chat/type';
+import type { ModuleDispatchProps } from '@fastgpt/global/core/workflow/runtime/type';
+import { type SelectAppItemType } from '@fastgpt/global/core/workflow/template/system/abandoned/runApp/type';
+import { runWorkflow } from '../index';
+import { ChatRoleEnum } from '@fastgpt/global/core/chat/constants';
+import { SseResponseEventEnum } from '@fastgpt/global/core/workflow/runtime/constants';
+import {
+  getWorkflowEntryNodeIds,
+  storeEdges2RuntimeEdges,
+  storeNodes2RuntimeNodes,
+  textAdaptGptResponse
+} from '@fastgpt/global/core/workflow/runtime/utils';
+import type { NodeInputKeyEnum, NodeOutputKeyEnum } from '@fastgpt/global/core/workflow/constants';
+import { DispatchNodeResponseKeyEnum } from '@fastgpt/global/core/workflow/runtime/constants';
+import { getHistories } from '../utils';
+import { WorkflowVariableState } from '../utils/variables';
+import { chatValue2RuntimePrompt, runtimePrompt2ChatsValue } from '@fastgpt/global/core/chat/adapt';
+import { type DispatchNodeResultType } from '@fastgpt/global/core/workflow/runtime/type';
+import { authAppByTmbId } from '../../../../support/permission/app/auth';
+import { ReadPermissionVal } from '@fastgpt/global/support/permission/constant';
+import { getUserChatInfo } from '../../../../support/user/team/utils';
+
+type Props = ModuleDispatchProps<{
+  [NodeInputKeyEnum.userChatInput]: string;
+  [NodeInputKeyEnum.history]?: ChatItemMiniType[] | number;
+  app: SelectAppItemType;
+}>;
+type Response = DispatchNodeResultType<{
+  [NodeOutputKeyEnum.answerText]: string;
+  [NodeOutputKeyEnum.history]: ChatItemMiniType[];
+}>;
+
+export const dispatchAppRequest = async (props: Props): Promise<Response> => {
+  const {
+    runningAppInfo,
+    workflowStreamResponse,
+    histories,
+    query,
+    variableState,
+    params: { userChatInput, history, app }
+  } = props;
+
+  if (!userChatInput) {
+    return Promise.reject('Input is empty');
+  }
+
+  // 检查该工作流的tmb是否有调用该app的权限（不是校验对话的人，是否有权限）
+  const { app: appData } = await authAppByTmbId({
+    appId: app.id,
+    tmbId: runningAppInfo.tmbId,
+    per: ReadPermissionVal
+  });
+
+  workflowStreamResponse?.({
+    event: SseResponseEventEnum.fastAnswer,
+    data: textAdaptGptResponse({
+      text: '\n'
+    })
+  });
+
+  const chatHistories = getHistories(history, histories);
+  const { files } = chatValue2RuntimePrompt(query);
+  const childRunningAppInfo = {
+    id: String(appData._id),
+    name: appData.name,
+    teamId: String(appData.teamId),
+    tmbId: String(appData.tmbId),
+    isChildApp: true
+  };
+  const { externalProvider } = await getUserChatInfo(appData.tmbId);
+  const childVariableState = await WorkflowVariableState.create({
+    timezone: props.timezone,
+    runningAppInfo: childRunningAppInfo,
+    uid: props.uid,
+    chatId: props.chatId,
+    responseChatItemId: props.responseChatItemId,
+    histories: chatHistories,
+    variablesConfig: appData.chatConfig?.variables,
+    inputVariables: variableState.toStoreRecord(),
+    externalVariables: externalProvider?.externalWorkflowVariables,
+    sourceVariableState: variableState
+  });
+
+  const { flowResponses, flowUsages, assistantResponses, system_memories } = await runWorkflow({
+    ...props,
+    runningAppInfo: childRunningAppInfo,
+    runtimeNodes: storeNodes2RuntimeNodes(
+      appData.modules,
+      getWorkflowEntryNodeIds(appData.modules)
+    ),
+    runtimeEdges: storeEdges2RuntimeEdges(appData.edges),
+    variableState: childVariableState,
+    chatConfig: appData.chatConfig,
+    histories: chatHistories,
+    query: runtimePrompt2ChatsValue({
+      files,
+      text: userChatInput
+    })
+  });
+
+  const completeMessages = chatHistories.concat([
+    {
+      obj: ChatRoleEnum.Human,
+      value: query
+    },
+    {
+      obj: ChatRoleEnum.AI,
+      value: assistantResponses
+    }
+  ]);
+
+  const { text } = chatValue2RuntimePrompt(assistantResponses);
+
+  return {
+    data: {
+      answerText: text,
+      history: completeMessages
+    },
+    [DispatchNodeResponseKeyEnum.answerText]: text,
+    assistantResponses,
+    system_memories,
+    [DispatchNodeResponseKeyEnum.nodeResponse]: {
+      moduleLogo: appData.avatar,
+      query: userChatInput,
+      textOutput: text,
+      totalPoints: flowResponses.reduce((sum, item) => sum + (item.totalPoints || 0), 0)
+    }
+  };
+};
