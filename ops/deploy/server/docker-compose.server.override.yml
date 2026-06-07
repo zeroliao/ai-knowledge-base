@@ -1,7 +1,7 @@
 # Server-only override. Keep public access behind Caddy.
 services:
   fastgpt-app:
-    image: fastgpt-custom:url-directory-004
+    image: ghcr.io/zeroliao/ai-knowledge-base-fastgpt:url-directory-004
     ports: !override
       - "127.0.0.1:${FASTGPT_WEB_PORT:-3000}:3000"
     depends_on: !override
