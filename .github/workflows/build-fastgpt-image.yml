@@ -39,6 +39,10 @@ jobs:
           if [ -z "$tag" ]; then
             tag="${DEFAULT_IMAGE_TAG}"
           fi
+          if [ "$tag" != "${DEFAULT_IMAGE_TAG}" ]; then
+            echo "Only ${DEFAULT_IMAGE_TAG} can be deployed by this restricted workflow."
+            exit 1
+          fi
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
       - name: Login to GHCR
@@ -89,24 +93,5 @@ jobs:
         shell: bash
         run: |
           ssh -i ~/.ssh/deploy_key -p "${{ secrets.DEPLOY_PORT }}" "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" <<'EOF'
-          set -e
-          cd /opt/fastgpt
-          ts=$(date +%Y%m%d%H%M%S)
-          sudo -n cp docker-compose.server.override.yml docker-compose.server.override.yml.bak.$ts
-          sudo -n docker load -i /tmp/fastgpt-custom-url-directory-004.tar.gz
-          sudo -n cp /tmp/docker-compose.server.override.yml docker-compose.server.override.yml
-          sudo -n docker compose --env-file .env -f docker-compose.pg.yml -f docker-compose.server.override.yml config >/tmp/fastgpt-compose-v004.yml
-          sudo -n docker compose --env-file .env -f docker-compose.pg.yml -f docker-compose.server.override.yml up -d fastgpt-app
-          rm -f /tmp/fastgpt-custom-url-directory-004.tar.gz /tmp/docker-compose.server.override.yml
-          for i in $(seq 1 60); do
-            if curl -fsS http://127.0.0.1:3000 >/dev/null; then
-              break
-            fi
-            if [ "$i" = "60" ]; then
-              sudo -n docker logs fastgpt-app --tail=160
-              exit 1
-            fi
-            sleep 2
-          done
-          sudo -n docker ps --filter name=fastgpt-app --format 'table {{.Names}}\t{{.Status}}\t{{.Image}}'
+          sudo -n /usr/local/sbin/deploy-fastgpt-v004
           EOF
