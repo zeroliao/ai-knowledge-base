@@ -35,3 +35,10 @@ sudo systemctl reload caddy
 ```
 
 Caddy 会自动申请和续期 HTTPS 证书。
+
+GitHub Actions 最小权限部署：
+
+- Actions 使用服务器账号 `fastgpt-deploy` 登录。
+- `fastgpt-deploy` 的 sudoers 仅允许免密执行 `/usr/local/sbin/deploy-fastgpt-v004`。
+- 固定部署脚本源文件保存在 `ops/deploy/server/deploy-fastgpt-v004.sh`；服务器上的 `/usr/local/sbin/deploy-fastgpt-v004` 必须与该文件同步，并由 root 拥有。
+- workflow 上传固定文件名 `/tmp/fastgpt-custom-url-directory-004.tar.gz` 和 `/tmp/docker-compose.server.override.yml`，再调用固定部署脚本。
