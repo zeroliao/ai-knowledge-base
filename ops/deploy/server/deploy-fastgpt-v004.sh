@@ -2,7 +2,7 @@
 set -euo pipefail
 
 IMAGE_TAG="url-directory-005"
-IMAGE_ARCHIVE="/tmp/fastgpt-custom-${IMAGE_TAG}.tar.gz"
+IMAGE_ARCHIVE="/tmp/fastgpt-custom-${IMAGE_TAG}.tar"
 OVERRIDE_FILE="/tmp/docker-compose.server.override.yml"
 BASE_DIR="/opt/fastgpt"
 BACKUP_ROOT="/opt/fastgpt-backups"
