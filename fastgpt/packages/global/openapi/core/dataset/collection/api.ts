@@ -196,6 +196,70 @@ export type GetCollectionTrainingDetailResponseType = z.infer<
   typeof GetCollectionTrainingDetailResponseSchema
 >;
 
+// ============= Source List =============
+export const CollectionSourceListBodySchema = PaginationSchema.extend({
+  datasetId: z.string().meta({ description: 'Dataset ID' }),
+  searchText: z.string().max(100).optional().default('').meta({ description: 'Search text' })
+});
+export type CollectionSourceListBodyType = z.infer<typeof CollectionSourceListBodySchema>;
+
+export const CollectionSourceListItemSchema = z.object({
+  _id: ObjectIdSchema.meta({ description: 'Collection ID' }),
+  parentId: DatasetCollectionSchema.shape.parentId,
+  name: DatasetCollectionSchema.shape.name,
+  type: DatasetCollectionSchema.shape.type,
+  createTime: DatasetCollectionSchema.shape.createTime,
+  updateTime: DatasetCollectionSchema.shape.updateTime,
+  fileId: z.string().optional().meta({ description: 'File ID' }),
+  rawLink: z.string().optional().meta({ description: 'Raw link' }),
+  externalFileId: z.string().optional().meta({ description: 'External file ID' }),
+  externalFileUrl: z.string().optional().meta({ description: 'External file URL' }),
+  tags: z.array(z.string()).optional().meta({ description: 'Tags' }),
+  sourceUrl: z.string().optional().meta({ description: 'Direct source URL when available' }),
+  dataAmount: z.number().meta({ description: 'Data count' }),
+  trainingAmount: z.number().meta({ description: 'Training count' }),
+  hasError: z.boolean().optional().meta({ description: 'Has training error' })
+});
+export type CollectionSourceListItemType = z.infer<typeof CollectionSourceListItemSchema>;
+
+export const CollectionSourceListResponseSchema = PaginationResponseSchema(
+  CollectionSourceListItemSchema
+);
+export type CollectionSourceListResponseType = z.infer<typeof CollectionSourceListResponseSchema>;
+
+// ============= Classification Recommendations =============
+export const RecommendCollectionClassificationsBodySchema = z.object({
+  datasetId: z.string().meta({ description: 'Dataset ID' }),
+  limit: z.number().int().min(1).max(100).optional().default(50)
+});
+export type RecommendCollectionClassificationsBodyType = z.infer<
+  typeof RecommendCollectionClassificationsBodySchema
+>;
+
+export const CollectionClassificationRecommendationSchema = z.object({
+  collectionId: ObjectIdSchema.meta({ description: 'Collection ID' }),
+  collectionName: z.string().meta({ description: 'Collection name' }),
+  sourceUrl: z.string().optional().meta({ description: 'Source URL' }),
+  currentParentId: z.string().nullable().optional().meta({ description: 'Current parent folder' }),
+  recommendedParentId: ObjectIdSchema.meta({ description: 'Recommended parent folder' }),
+  recommendedParentName: z.string().meta({ description: 'Recommended parent folder name' }),
+  confidence: z.number().min(0).max(1).meta({ description: 'Confidence score' }),
+  method: z.enum(['ai', 'rule']).optional().default('rule').meta({
+    description: 'Recommendation method'
+  }),
+  reason: z.string().meta({ description: 'Recommendation reason' })
+});
+export type CollectionClassificationRecommendationType = z.infer<
+  typeof CollectionClassificationRecommendationSchema
+>;
+
+export const RecommendCollectionClassificationsResponseSchema = z.object({
+  list: z.array(CollectionClassificationRecommendationSchema)
+});
+export type RecommendCollectionClassificationsResponseType = z.infer<
+  typeof RecommendCollectionClassificationsResponseSchema
+>;
+
 // ============= Sync Collection =============
 export const SyncCollectionBodySchema = z.object({
   collectionId: ObjectIdSchema.meta({ description: '集合 ID' })

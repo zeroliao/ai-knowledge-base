@@ -7,6 +7,143 @@ import { getLogger, LogCategories } from '../logger';
 
 const logger = getLogger(LogCategories.HTTP.ERROR);
 
+const defaultContentSelectors = [
+  'article',
+  'main article',
+  'main',
+  '.post-content',
+  '.entry-content',
+  '.article-content',
+  '.article-body',
+  '.post-body',
+  '.markdown-body'
+];
+
+const noiseSelectors = [
+  'script',
+  'style',
+  'noscript',
+  'nav',
+  'header',
+  'footer',
+  'aside',
+  'form',
+  'button',
+  'input',
+  'select',
+  'textarea',
+  'canvas',
+  'svg',
+  '[role="navigation"]',
+  '[role="banner"]',
+  '[role="complementary"]',
+  '[role="contentinfo"]',
+  '[aria-label*="导航"]',
+  '[aria-label*="菜单"]',
+  '[aria-label*="分享"]',
+  '[aria-label*="广告"]',
+  '.nav',
+  '.navbar',
+  '.menu',
+  '.header',
+  '.footer',
+  '.sidebar',
+  '.side-bar',
+  '.breadcrumb',
+  '.breadcrumbs',
+  '.pagination',
+  '.pager',
+  '.post-nav',
+  '.post-navigation',
+  '.prev-next',
+  '.related',
+  '.recommend',
+  '.recommended',
+  '.share',
+  '.social',
+  '.ad',
+  '.ads',
+  '.advert',
+  '.advertisement',
+  '.banner',
+  '.widget',
+  '.comment',
+  '.comments',
+  '.toc'
+];
+
+const noisyShortTextPattern =
+  /^(首页|主页|分类|目录|归档|标签|上一页|下一页|上一篇|下一篇|前一篇|后一篇|分享|分享到|相关推荐|相关文章|随机文章|返回顶部|登录|注册|搜索|广告|赞助|友情链接|评论|阅读更多|home|categories|tags|archives|previous|next|share|related posts?|read more)$/i;
+
+const noisySectionHeadingPattern =
+  /^(账号购买与充值|相关专辑|关注我不迷路|eSIM推荐|相关推荐|相关文章|推荐阅读|延伸阅读|广告|赞助|推广|福利推荐|友情链接|评论区?|share|related posts?|recommended|sponsored)$/i;
+
+const normalizeNodeText = (text: string) => text.replace(/\s+/g, ' ').trim();
+
+const findDefaultContentSelector = ($: cheerio.CheerioAPI) =>
+  defaultContentSelectors.find((item) => $(item).text().trim().length > 0);
+
+const removeSectionFromHeading = ($: cheerio.CheerioAPI, heading: cheerio.Element) => {
+  const headingLevel = Number(heading.tagName.replace(/^h/i, ''));
+  const nodesToRemove: cheerio.Element[] = [heading];
+
+  let sibling = $(heading).next();
+  while (sibling.length > 0) {
+    const el = sibling.get(0);
+    if (!el) break;
+
+    if (/^h[1-6]$/i.test(el.tagName)) {
+      const level = Number(el.tagName.replace(/^h/i, ''));
+      if (level <= headingLevel) break;
+    }
+
+    nodesToRemove.push(el);
+    sibling = sibling.next();
+  }
+
+  nodesToRemove.forEach((item) => $(item).remove());
+};
+
+const cleanWebPageDom = ($: cheerio.CheerioAPI, selectDom: cheerio.Cheerio<cheerio.AnyNode>) => {
+  selectDom.find(noiseSelectors.join(',')).remove();
+
+  selectDom.find('h1,h2,h3,h4,h5,h6').each((i, el) => {
+    const text = normalizeNodeText($(el).text()).replace(/[：:|-].*$/, '');
+    if (noisySectionHeadingPattern.test(text)) {
+      removeSectionFromHeading($, el);
+    }
+  });
+
+  selectDom
+    .find('p,li,div')
+    .filter((i, el) => {
+      const text = normalizeNodeText($(el).text());
+      const hasOnlyLinks = $(el).find('a').length > 0 && $(el).children().not('a').length === 0;
+
+      return (
+        text.length > 0 &&
+        text.length <= 80 &&
+        noisyShortTextPattern.test(text.replace(/[：:|-].*$/, '')) &&
+        (hasOnlyLinks || $(el).find('a').length > 0)
+      );
+    })
+    .remove();
+
+  selectDom
+    .find('a')
+    .filter((i, el) => {
+      const text = normalizeNodeText($(el).text());
+      return text.length > 0 && text.length <= 30 && noisyShortTextPattern.test(text);
+    })
+    .remove();
+
+  selectDom
+    .find('*')
+    .not('img,video,source,audio,iframe,br,hr')
+    .filter((i, el) => normalizeNodeText($(el).text()) === '' && $(el).children().length === 0)
+    .remove();
+};
+
 export const cheerioToHtml = ({
   fetchUrl,
   $,
@@ -25,11 +162,13 @@ export const cheerioToHtml = ({
     .map((item) => item.trim())
     .filter(Boolean);
   const matchedSelector = selectorList?.find((item) => $(item).length > 0);
-  const usedSelector = matchedSelector || selector || 'body';
+  const usedSelector = matchedSelector || selector || findDefaultContentSelector($) || 'body';
   const selectDom = $(usedSelector);
 
+  cleanWebPageDom($, selectDom);
+
   // remove i element
-  selectDom.find('i,script,style').remove();
+  selectDom.find('i').remove();
 
   // remove empty a element
   selectDom

@@ -29,6 +29,10 @@ import type { DatasetCollectionSyncResultEnum } from '@fastgpt/global/core/datas
 import type {
   DatasetCollectionsListItemType,
   DeleteCollectionBodyType,
+  CollectionSourceListBodyType,
+  CollectionSourceListResponseType,
+  RecommendCollectionClassificationsBodyType,
+  RecommendCollectionClassificationsResponseType,
   ReadCollectionSourceBodyType,
   ReadCollectionSourceResponseType,
   UpdateDatasetCollectionBodyType
@@ -39,6 +43,15 @@ import type { GetCollectionTrainingDetailResponseType } from '@fastgpt/global/op
 /* ============================= collections ==================================== */
 export const getDatasetCollections = (data: GetDatasetCollectionsProps) =>
   POST<PaginationResponse<DatasetCollectionsListItemType>>(`/core/dataset/collection/listV2`, data);
+export const getDatasetCollectionSources = (data: CollectionSourceListBodyType) =>
+  POST<CollectionSourceListResponseType>(`/core/dataset/collection/sourceList`, data);
+export const getCollectionClassificationRecommendations = (
+  data: RecommendCollectionClassificationsBodyType
+) =>
+  POST<RecommendCollectionClassificationsResponseType>(
+    `/core/dataset/collection/classification/recommend`,
+    data
+  );
 export const getDatasetCollectionPathById = (sourceId: ParentIdType) =>
   GET<ParentTreePathItemType[]>(`/core/dataset/collection/paths`, { sourceId });
 export const getDatasetCollectionById = (id: string) =>

@@ -13,6 +13,8 @@ export enum TabEnum {
   dataCard = 'dataCard',
   collectionCard = 'collectionCard',
   test = 'test',
+  sources = 'sources',
+  classification = 'classification',
   info = 'info',
   import = 'import'
 }
@@ -34,6 +36,10 @@ const NavBar = ({ currentTab }: { currentTab: TabEnum }) => {
       value: TabEnum.collectionCard
     },
     { label: t('common:core.dataset.test.Search Test'), value: TabEnum.test },
+    { label: '来源', value: TabEnum.sources },
+    ...(datasetDetail.permission.hasWritePer
+      ? [{ label: 'AI 分类', value: TabEnum.classification }]
+      : []),
     ...(datasetDetail.permission.hasManagePer && !isPc
       ? [{ label: t('common:Config'), value: TabEnum.info }]
       : [])

@@ -692,6 +692,21 @@ FastGPT 模型调用失败率 > 10%
 4. 启动临时 FastGPT stack。
 5. 抽样检查知识库、引用和原文查看。
 
+服务器脚本：
+
+```text
+ops/scripts/server/backup-fastgpt.sh
+ops/scripts/server/restore-fastgpt.sh
+```
+
+备份脚本默认在服务器 `/opt/fastgpt` 执行，输出到 `/opt/fastgpt-backups/<timestamp>`，包含 MongoDB、PostgreSQL/pgvector、MinIO 数据和 compose 状态快照。
+
+恢复脚本需要显式传入备份目录，并输入 `RESTORE` 二次确认：
+
+```bash
+FASTGPT_DEPLOY_DIR=/opt/fastgpt bash ops/scripts/server/restore-fastgpt.sh /opt/fastgpt-backups/20260609-120000
+```
+
 ## 14. 安全要求
 
 密钥：

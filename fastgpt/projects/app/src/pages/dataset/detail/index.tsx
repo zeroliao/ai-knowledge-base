@@ -28,11 +28,15 @@ const DataCard = dynamic(() => import('@/pageComponents/dataset/detail/DataCard'
 const Test = dynamic(() => import('@/pageComponents/dataset/detail/Test'));
 const Info = dynamic(() => import('@/pageComponents/dataset/detail/Info/index'));
 const Import = dynamic(() => import('@/pageComponents/dataset/detail/Import'));
+const Sources = dynamic(() => import('@/pageComponents/dataset/detail/Sources'));
+const Classification = dynamic(() => import('@/pageComponents/dataset/detail/Classification'));
 
 export enum TabEnum {
   dataCard = 'dataCard',
   collectionCard = 'collectionCard',
   test = 'test',
+  sources = 'sources',
+  classification = 'classification',
   info = 'info',
   import = 'import'
 }
@@ -79,6 +83,8 @@ const Detail = ({ datasetId, currentTab }: Props) => {
                 </CollectionPageContextProvider>
               )}
               {currentTab === TabEnum.test && <Test datasetId={datasetId} />}
+              {currentTab === TabEnum.sources && <Sources />}
+              {currentTab === TabEnum.classification && <Classification />}
               {currentTab === TabEnum.dataCard && <DataCard />}
               {currentTab === TabEnum.import && <Import />}
             </Box>
@@ -91,7 +97,9 @@ const Detail = ({ datasetId, currentTab }: Props) => {
                 <MetaDataCard datasetId={datasetId} />
               </Flex>
             )}
-            {[TabEnum.collectionCard, TabEnum.test].includes(currentTab) && (
+            {[TabEnum.collectionCard, TabEnum.test, TabEnum.sources, TabEnum.classification].includes(
+              currentTab
+            ) && (
               <Flex {...sliderStyles} flex={'0 0 17rem'}>
                 <Info datasetId={datasetId} />
               </Flex>
@@ -112,6 +120,8 @@ const Detail = ({ datasetId, currentTab }: Props) => {
                 )}
                 {currentTab === TabEnum.dataCard && <DataCard />}
                 {currentTab === TabEnum.test && <Test datasetId={datasetId} />}
+                {currentTab === TabEnum.sources && <Sources />}
+                {currentTab === TabEnum.classification && <Classification />}
                 {currentTab === TabEnum.info && <Info datasetId={datasetId} />}
                 {currentTab === TabEnum.import && <Import />}
               </Box>

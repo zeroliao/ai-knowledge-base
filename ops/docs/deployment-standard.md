@@ -37,7 +37,7 @@
 - 不重启 MongoDB、PostgreSQL、Redis、MinIO 或 Caddy，除非本次变更直接涉及它们。
 - GitHub Actions 部署必须使用最小权限服务器账号，当前为 `fastgpt-deploy`。
 - Actions SSH 登录账号不得拥有通用 sudo 权限；当前 sudoers 仅允许免密执行 `/usr/local/sbin/deploy-fastgpt-v004`。
-- 固定版本部署脚本必须由 root 拥有，并在脚本内完成镜像加载、compose 覆盖、`docker compose config`、重启 `fastgpt-app`、健康检查和临时文件清理。
+- 固定部署入口必须由 root 拥有，并在脚本内完成镜像加载、compose 覆盖、`docker compose config`、必要的数据迁移、重启 `fastgpt-app`、健康检查和临时文件清理。
 - Actions workflow 的可部署 tag 必须和服务器固定部署脚本匹配，避免传入其它 tag 后部署到错误路径或残留临时包。
 
 ## 验证

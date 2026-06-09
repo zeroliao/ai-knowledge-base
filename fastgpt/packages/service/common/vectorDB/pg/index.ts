@@ -1,24 +1,23 @@
 /* pg vector crud */
-import { DatasetVectorTableName, VectorVQ } from '../constants';
+import { DatasetVectorTableName } from '../constants';
 import { PgClient, connectPg } from './controller';
 import type { VectorControllerType } from '../type';
 import dayjs from 'dayjs';
 import { getLogger, LogCategories } from '../../logger';
 
 const logger = getLogger(LogCategories.INFRA.POSTGRES);
+const PG_VECTOR_DIMENSION = 2048;
 
 export class PgVectorCtrl implements VectorControllerType {
   constructor() {}
   init = async () => {
-    const isHalfVec = VectorVQ === 16;
-
     try {
       await connectPg();
       await PgClient.query(`
         CREATE EXTENSION IF NOT EXISTS vector;
         CREATE TABLE IF NOT EXISTS ${DatasetVectorTableName} (
             id BIGSERIAL PRIMARY KEY,
-            vector ${isHalfVec ? 'HALFVEC(1536)' : 'VECTOR(1536)'} NOT NULL,
+            vector HALFVEC(${PG_VECTOR_DIMENSION}) NOT NULL,
             team_id VARCHAR(50) NOT NULL,
             dataset_id VARCHAR(50) NOT NULL,
             collection_id VARCHAR(50) NOT NULL,
@@ -27,7 +26,7 @@ export class PgVectorCtrl implements VectorControllerType {
       `);
 
       await PgClient.query(
-        `CREATE INDEX CONCURRENTLY IF NOT EXISTS vector_index ON ${DatasetVectorTableName} USING hnsw (vector ${isHalfVec ? 'halfvec_ip_ops' : 'vector_ip_ops'}) WITH (m = 32, ef_construction = 128);`
+        `CREATE INDEX CONCURRENTLY IF NOT EXISTS vector_index ON ${DatasetVectorTableName} USING hnsw (vector halfvec_ip_ops) WITH (m = 32, ef_construction = 128);`
       );
       await PgClient.query(
         `CREATE INDEX CONCURRENTLY IF NOT EXISTS team_dataset_collection_index ON ${DatasetVectorTableName} USING btree(team_id, dataset_id, collection_id);`
