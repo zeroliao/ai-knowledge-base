@@ -50,8 +50,7 @@ docker compose --env-file .env "${COMPOSE_FILES[@]}" exec -T fastgpt-vector \
   -U "${POSTGRES_USER:-username}" > "${backup_dir}/postgres.sql"
 gzip "${backup_dir}/postgres.sql"
 
-docker compose --env-file .env "${COMPOSE_FILES[@]}" exec -T fastgpt-minio \
-  tar -C /data -czf - . > "${backup_dir}/minio-data.tar.gz"
+docker cp fastgpt-minio:/data "${backup_dir}/minio-data"
 
 cp .env "${backup_dir}/env.snapshot"
 cp docker-compose.pg.yml "${backup_dir}/docker-compose.pg.yml"
