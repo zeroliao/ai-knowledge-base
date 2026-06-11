@@ -16,12 +16,16 @@ if [ ! -d "${BACKUP_DIR}" ]; then
   exit 1
 fi
 
-for file in mongo.archive.gz postgres.sql.gz minio-data.tar.gz; do
+for file in mongo.archive.gz postgres.sql.gz; do
   if [ ! -f "${BACKUP_DIR}/${file}" ]; then
     echo "Required backup file missing: ${BACKUP_DIR}/${file}"
     exit 1
   fi
 done
+if [ ! -d "${BACKUP_DIR}/minio-data" ] && [ ! -f "${BACKUP_DIR}/minio-data.tar.gz" ]; then
+  echo "Required backup path missing: ${BACKUP_DIR}/minio-data or ${BACKUP_DIR}/minio-data.tar.gz"
+  exit 1
+fi
 
 cd "${ROOT_DIR}"
 
@@ -49,8 +53,16 @@ gunzip -c "${BACKUP_DIR}/postgres.sql.gz" | docker compose --env-file "${ENV_FIL
   psql -U "${POSTGRES_USER:-username}" -d postgres
 
 echo "Restoring MinIO object storage..."
-cat "${BACKUP_DIR}/minio-data.tar.gz" | docker compose --env-file "${ENV_FILE}" "${COMPOSE_FILES[@]}" exec -T fastgpt-minio \
-  sh -c 'rm -rf /data/* && tar -C /data -xzf -'
+docker compose --env-file "${ENV_FILE}" "${COMPOSE_FILES[@]}" exec -T fastgpt-minio \
+  sh -c 'rm -rf /data/*'
+if [ -d "${BACKUP_DIR}/minio-data" ]; then
+  docker cp "${BACKUP_DIR}/minio-data/." fastgpt-minio:/data
+else
+  tmp_minio_restore="$(mktemp -d /tmp/fastgpt-minio-restore.XXXXXX)"
+  trap 'rm -rf "${tmp_minio_restore}"' EXIT
+  tar -C "${tmp_minio_restore}" -xzf "${BACKUP_DIR}/minio-data.tar.gz"
+  docker cp "${tmp_minio_restore}/." fastgpt-minio:/data
+fi
 
 echo "Restarting services..."
 docker compose --env-file "${ENV_FILE}" "${COMPOSE_FILES[@]}" restart fastgpt-app fastgpt-plugin

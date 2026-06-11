@@ -498,6 +498,15 @@ describe('DatasetDataIndexOperation', () => {
         { type: DatasetDataIndexTypeEnum.custom, text: 'new text', dataId: 'update_id' },
         { type: DatasetDataIndexTypeEnum.custom, text: 'create' }
       ]);
+      expect(result.find((item) => item.type === 'update')).toEqual({
+        type: 'update',
+        index: { type: DatasetDataIndexTypeEnum.custom, text: 'new text', dataId: 'update_id' },
+        previousIndex: {
+          type: DatasetDataIndexTypeEnum.custom,
+          text: 'old text',
+          dataId: 'update_id'
+        }
+      });
     });
 
     it('should allow patching only filtered current indexes', () => {
@@ -558,6 +567,30 @@ describe('DatasetDataIndexOperation', () => {
         { type: DatasetDataIndexTypeEnum.custom, text: 'new text', dataId: 'id_1' },
         { type: DatasetDataIndexTypeEnum.custom, text: 'new custom', dataId: 'id_2' }
       ]);
+      expect(operation.getDeleteVectorIdList(patchResult)).toEqual(['old_id']);
+    });
+
+    it('should keep previous update index when vector insertion is skipped', async () => {
+      const operation = new DatasetDataIndexOperation(embeddingModel);
+      mockVectorInsert.mockResolvedValueOnce({ insertIds: [''] });
+      const patchResult = operation.buildPatch({
+        currentIndexes: [
+          { type: DatasetDataIndexTypeEnum.custom, text: 'old text', dataId: 'old_id' }
+        ],
+        nextIndexes: [{ type: DatasetDataIndexTypeEnum.custom, text: 'new text', dataId: 'old_id' }]
+      });
+
+      await operation.insertVectorForPatch({
+        patchResult,
+        teamId: 'team_id',
+        datasetId: 'dataset_id',
+        collectionId: 'collection_id'
+      });
+
+      expect(operation.getWritablePatchIndexes(patchResult)).toEqual([
+        { type: DatasetDataIndexTypeEnum.custom, text: 'old text', dataId: 'old_id' }
+      ]);
+      expect(operation.getDeleteVectorIdList(patchResult)).toEqual([]);
     });
 
     it('should return zero when no patch item needs vector insertion', async () => {

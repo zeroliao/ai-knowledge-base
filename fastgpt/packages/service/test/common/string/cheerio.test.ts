@@ -112,4 +112,30 @@ describe('cheerioToHtml', () => {
     expect(html).not.toContain('相关专辑');
     expect(html).not.toContain('Playlist link should be removed.');
   });
+
+  it('removes common archive, sidebar and recommendation blocks from article content', () => {
+    const $ = cheerio.load(`
+      <article>
+        <h1>Useful article</h1>
+        <p>Main content should stay.</p>
+        <div class="related-posts">Related post link should be removed.</div>
+        <div class="popular-posts">Popular post link should be removed.</div>
+        <div class="archive">Archive link should be removed.</div>
+        <div id="sidebar-right">Sidebar link should be removed.</div>
+        <div class="sponsored">Sponsored link should be removed.</div>
+      </article>
+    `);
+
+    const { html } = cheerioToHtml({
+      fetchUrl: 'https://example.com/post/5',
+      $
+    });
+
+    expect(html).toContain('Main content should stay.');
+    expect(html).not.toContain('Related post link should be removed.');
+    expect(html).not.toContain('Popular post link should be removed.');
+    expect(html).not.toContain('Archive link should be removed.');
+    expect(html).not.toContain('Sidebar link should be removed.');
+    expect(html).not.toContain('Sponsored link should be removed.');
+  });
 });

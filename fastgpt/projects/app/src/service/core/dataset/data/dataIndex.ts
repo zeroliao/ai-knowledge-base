@@ -42,6 +42,7 @@ export type DatasetDataIndexPatch =
   | {
       type: 'update';
       index: DatasetDataIndexItemType;
+      previousIndex: DatasetDataIndexItemType;
       skipped?: boolean;
     }
   | {
@@ -416,7 +417,8 @@ export class DatasetDataIndexOperation {
           index: {
             ...item,
             dataId: index.dataId
-          }
+          },
+          previousIndex: index
         });
       }
     }
@@ -431,10 +433,17 @@ export class DatasetDataIndexOperation {
    * 向量 id，再写回 Mongo。
    */
   getDeleteVectorIdList(patchResult: DatasetDataIndexPatch[]) {
-    return patchResult
-      .filter((item) => item.type === 'delete' || item.type === 'update')
-      .map((item) => item.index.dataId)
-      .filter(Boolean) as string[];
+    const deleteIds: string[] = [];
+    patchResult.forEach((item) => {
+      if (item.type === 'delete') {
+        deleteIds.push(item.index.dataId);
+      }
+      if (item.type === 'update' && !item.skipped) {
+        deleteIds.push(item.previousIndex.dataId);
+      }
+    });
+
+    return deleteIds.filter(Boolean);
   }
 
   /**
@@ -443,8 +452,15 @@ export class DatasetDataIndexOperation {
    */
   getWritablePatchIndexes(patchResult: DatasetDataIndexPatch[]) {
     return patchResult
-      .filter((item) => item.type !== 'delete' && !('skipped' in item && item.skipped))
-      .map((item) => item.index) as DatasetDataIndexItemType[];
+      .filter((item) => item.type !== 'delete')
+      .map((item) => {
+        if (item.type === 'update' && item.skipped) {
+          return item.previousIndex;
+        }
+        if ('skipped' in item && item.skipped) return;
+        return item.index;
+      })
+      .filter(Boolean) as DatasetDataIndexItemType[];
   }
 
   private async insertIndexVectorIds({
@@ -497,7 +513,8 @@ export class DatasetDataIndexOperation {
           model: embModel,
           teamId,
           datasetId,
-          collectionId
+          collectionId,
+          skipFailedInputs: true
         })
       : { tokens: 0, insertIds: [] as string[] };
 

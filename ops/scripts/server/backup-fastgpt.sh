@@ -29,8 +29,7 @@ docker compose --env-file "${ENV_FILE}" "${COMPOSE_FILES[@]}" exec -T fastgpt-ve
 gzip "${BACKUP_DIR}/postgres.sql"
 
 echo "Backing up MinIO object storage..."
-docker compose --env-file "${ENV_FILE}" "${COMPOSE_FILES[@]}" exec -T fastgpt-minio \
-  tar -C /data -czf - . > "${BACKUP_DIR}/minio-data.tar.gz"
+docker cp fastgpt-minio:/data "${BACKUP_DIR}/minio-data"
 
 echo "Capturing compose and container state..."
 cp "${ENV_FILE}" "${BACKUP_DIR}/env.snapshot"

@@ -26,6 +26,7 @@ import { retryFn, withTimeout } from '@fastgpt/global/common/system/utils';
 import { getLogger, LogCategories } from '../logger';
 
 const logger = getLogger(LogCategories.INFRA.REDIS);
+const vectorLogger = getLogger(LogCategories.INFRA.VECTOR);
 const TEAM_VECTOR_CACHE_OPERATION_TIMEOUT_MS = 3000;
 
 const runTeamVectorCacheOperation = async <T>({
@@ -116,10 +117,12 @@ type DatasetVectorInput = string | GetVectorsProps['inputs'][number];
 export const insertDatasetDataVector = async ({
   model,
   inputs,
+  skipFailedInputs,
   ...props
 }: Omit<InsertVectorControllerPropsType, 'vectors'> & {
   inputs: DatasetVectorInput[];
   model: EmbeddingModelItemType;
+  skipFailedInputs?: boolean;
 }) => {
   if (inputs.length === 0) {
     return {
@@ -136,17 +139,69 @@ export const insertDatasetDataVector = async ({
         }
       : input
   );
-  const { vectors, tokens } = await getVectors({
-    model,
-    inputs: embeddingInputs,
-    type: 'db'
-  });
-  const { insertIds } = await retryFn(() =>
-    Vector.insert({
-      ...props,
-      vectors
-    })
-  );
+  const insertBatch = async (inputs: typeof embeddingInputs) => {
+    const { vectors, tokens } = await getVectors({
+      model,
+      inputs,
+      type: 'db'
+    });
+    const { insertIds } = await retryFn(() =>
+      Vector.insert({
+        ...props,
+        vectors
+      })
+    );
+
+    return { tokens, insertIds };
+  };
+
+  if (!skipFailedInputs) {
+    const { tokens, insertIds } = await insertBatch(embeddingInputs);
+
+    await teamVectorCache.invalidate(props.teamId);
+
+    return {
+      tokens,
+      insertIds
+    };
+  }
+
+  let tokens = 0;
+  let insertIds: string[] = [];
+  try {
+    const result = await insertBatch(embeddingInputs);
+    tokens = result.tokens;
+    insertIds = result.insertIds;
+  } catch (error) {
+    vectorLogger.warn('Batch dataset embedding failed, falling back to single input inserts', {
+      teamId: props.teamId,
+      datasetId: props.datasetId,
+      collectionId: props.collectionId,
+      model: model.model,
+      inputCount: embeddingInputs.length,
+      error
+    });
+
+    for (const [index, input] of embeddingInputs.entries()) {
+      try {
+        const result = await insertBatch([input]);
+        tokens += result.tokens;
+        insertIds[index] = result.insertIds[0] || '';
+      } catch (singleError) {
+        insertIds[index] = '';
+        vectorLogger.warn('Dataset embedding input skipped after single input retry failed', {
+          teamId: props.teamId,
+          datasetId: props.datasetId,
+          collectionId: props.collectionId,
+          model: model.model,
+          inputIndex: index,
+          inputType: input.type,
+          inputPreview: input.type === 'text' ? input.input.slice(0, 160) : undefined,
+          error: singleError
+        });
+      }
+    }
+  }
 
   await teamVectorCache.invalidate(props.teamId);
 

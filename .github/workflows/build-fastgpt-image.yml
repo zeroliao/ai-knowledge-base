@@ -6,7 +6,7 @@ on:
       image_tag:
         description: FastGPT image tag to build
         required: true
-        default: url-directory-004
+        default: url-directory-005
   push:
     branches:
       - main
@@ -22,7 +22,7 @@ permissions:
 env:
   LOCAL_IMAGE_NAME: fastgpt-custom
   GHCR_IMAGE_NAME: ghcr.io/zeroliao/ai-knowledge-base-fastgpt
-  DEFAULT_IMAGE_TAG: url-directory-004
+  DEFAULT_IMAGE_TAG: url-directory-005
 
 jobs:
   build-and-deploy:

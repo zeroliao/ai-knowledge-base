@@ -30,8 +30,19 @@ const NON_ARTICLE_PATH_PATTERNS = [
   /^\/$/,
   /^\/(?:index|home)\/?$/i,
   /^\/(?:categories?|tags?|archives?|page|pages|search|sitemap|about|friends|support|contact|privacy)(?:\/|$)/i,
-  /^\/(?:category|tag|archive|author)(?:\/|$)/i,
+  /^\/(?:category|tag|archive|author|authors|topics?|columns?|series)(?:\/|$)/i,
+  /^\/(?:login|logout|signup|register|account|user|users|member|members|profile)(?:\/|$)/i,
+  /^\/(?:ads?|advertisements?|sponsors?|promotion|promo|links?|nav|menu)(?:\/|$)/i,
   /^\/(?:feed|rss|atom)(?:\.xml)?\/?$/i
+];
+const NON_ARTICLE_QUERY_KEYS = [
+  'replytocom',
+  'share',
+  'utm_source',
+  'utm_medium',
+  'utm_campaign',
+  'utm_term',
+  'utm_content'
 ];
 
 function decodeXmlText(value: string) {
@@ -137,10 +148,11 @@ function isImportablePageUrl(url: string, originUrl: string) {
   if (!hasSameOrigin(url, originUrl)) return false;
 
   try {
-    const { pathname } = new URL(url);
+    const { pathname, searchParams } = new URL(url);
     if (
       NON_ARTICLE_EXTENSIONS.test(pathname) ||
-      NON_ARTICLE_PATH_PATTERNS.some((pattern) => pattern.test(pathname))
+      NON_ARTICLE_PATH_PATTERNS.some((pattern) => pattern.test(pathname)) ||
+      NON_ARTICLE_QUERY_KEYS.some((key) => searchParams.has(key))
     ) {
       return false;
     }

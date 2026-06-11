@@ -432,6 +432,44 @@ describe('VectorDB Controller', () => {
       expect(mockVectorInsert).not.toHaveBeenCalled();
       expect(mockDelRedisCache).not.toHaveBeenCalled();
     });
+
+    it('should isolate failed embedding inputs when skipFailedInputs is enabled', async () => {
+      mockGetVectors
+        .mockRejectedValueOnce(new Error('batch invalid input'))
+        .mockResolvedValueOnce({
+          tokens: 10,
+          vectors: [[0.1]]
+        })
+        .mockRejectedValueOnce(new Error('single invalid input'))
+        .mockResolvedValueOnce({
+          tokens: 12,
+          vectors: [[0.3]]
+        });
+      mockVectorInsert
+        .mockResolvedValueOnce({
+          insertIds: ['id_1']
+        })
+        .mockResolvedValueOnce({
+          insertIds: ['id_3']
+        });
+
+      const result = await insertDatasetDataVector({
+        teamId: 'team_123',
+        datasetId: 'dataset_456',
+        collectionId: 'col_789',
+        inputs: ['valid input', 'bad input', 'another valid input'],
+        model: mockModel as any,
+        skipFailedInputs: true
+      });
+
+      expect(mockGetVectors).toHaveBeenCalledTimes(4);
+      expect(mockVectorInsert).toHaveBeenCalledTimes(2);
+      expect(result).toEqual({
+        tokens: 22,
+        insertIds: ['id_1', '', 'id_3']
+      });
+      expect(mockDelRedisCache).toHaveBeenCalledWith('team_vector_count:team_123');
+    });
   });
 
   describe('deleteDatasetDataVector', () => {
