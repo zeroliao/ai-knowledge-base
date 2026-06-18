@@ -1,4 +1,4 @@
-﻿# AI 私有知识库项目总文档
+# AI 私有知识库项目总文档
 
 ## 1. 项目介绍
 
@@ -465,6 +465,30 @@ powershell -ExecutionPolicy Bypass -File .\scripts\local\generate-fixtures.ps1
 ```text
 tests/fixtures/
 ```
+
+## 8.1 GitHub 项目卡片导入
+
+用于把一个或多个 GitHub 项目地址转换成可检索的项目推荐卡片，再导入 FastGPT 知识库。
+
+Dry run 只生成预览文件，不写入 FastGPT：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\ops\scripts\local\import-github-project-cards.ps1 -Urls "https://github.com/owner/repo"
+```
+
+批量 URL：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\ops\scripts\local\import-github-project-cards.ps1 -UrlsFile .\artifacts\source\github-project-urls.txt
+```
+
+导入当前项目推荐知识库：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\ops\scripts\local\import-github-project-cards.ps1 -Urls "https://github.com/owner/repo" -Import -SkipExisting -PasswordPlain "<runtime password>"
+```
+
+注意：脚本不保存密码；`awesome-llm-apps` 已生成过的项目会优先复用本地 v2 高质量卡片；其它 GitHub 项目会基于仓库 metadata、README 和文件树生成通用卡片。
 
 ## 9. 服务器部署流程
 

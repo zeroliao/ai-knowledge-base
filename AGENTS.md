@@ -4,6 +4,7 @@
 
 - This is the single Git repository for the private AI knowledge base project.
 - Production service target: `kb.zero007.chat`, based on FastGPT, PostgreSQL + pgvector, MongoDB, Redis, AIProxy, Docker and Caddy.
+- Production server SSH alias: use `ssh sub2api-cf`.
 - `ops/` stores deployment docs, release records, server templates, scripts and acceptance fixtures.
 - `fastgpt/` stores the private FastGPT derivative source code. Do not sync upstream FastGPT unless the user explicitly requests it.
 - `artifacts/` is for local temporary build outputs and must not be committed.

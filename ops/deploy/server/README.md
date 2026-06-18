@@ -3,7 +3,7 @@
 服务器通过本机别名连接：
 
 ```powershell
-ssh kb-server
+ssh sub2api-cf
 ```
 
 部署前必须先完成：
