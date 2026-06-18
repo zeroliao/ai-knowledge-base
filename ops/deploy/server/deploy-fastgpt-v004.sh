@@ -3,6 +3,7 @@ set -euo pipefail
 
 IMAGE_TAG="url-directory-005"
 IMAGE_ARCHIVE="/tmp/fastgpt-custom-${IMAGE_TAG}.tar"
+IMAGE_ARCHIVE_GZ="${IMAGE_ARCHIVE}.gz"
 OVERRIDE_FILE="/tmp/docker-compose.server.override.yml"
 BASE_DIR="/opt/fastgpt"
 BACKUP_ROOT="/opt/fastgpt-backups"
@@ -10,7 +11,7 @@ CONFIG_CHECK_FILE=""
 COMPOSE_FILES=(-f docker-compose.pg.yml -f docker-compose.server.override.yml)
 
 cleanup() {
-  rm -f "$IMAGE_ARCHIVE" "$OVERRIDE_FILE"
+  rm -f "$IMAGE_ARCHIVE" "$IMAGE_ARCHIVE_GZ" "$OVERRIDE_FILE"
   if [[ -n "$CONFIG_CHECK_FILE" ]]; then
     rm -f "$CONFIG_CHECK_FILE"
   fi
@@ -18,6 +19,11 @@ cleanup() {
 trap cleanup EXIT
 
 cd "$BASE_DIR"
+
+if [[ ! -f "$IMAGE_ARCHIVE" && -f "$IMAGE_ARCHIVE_GZ" ]]; then
+  echo "Extracting image archive: $IMAGE_ARCHIVE_GZ"
+  gzip -dc "$IMAGE_ARCHIVE_GZ" > "$IMAGE_ARCHIVE"
+fi
 
 if [[ ! -f "$IMAGE_ARCHIVE" ]]; then
   echo "missing image archive: $IMAGE_ARCHIVE" >&2
