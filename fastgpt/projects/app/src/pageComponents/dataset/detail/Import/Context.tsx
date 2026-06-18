@@ -148,6 +148,20 @@ const DatasetImportContextProvider = ({ children }: { children: React.ReactNode 
         title: t('dataset:import_confirm')
       }
     ],
+    [ImportDataSourceEnum.githubProjectCards]: [
+      {
+        title: '输入 GitHub 链接'
+      },
+      {
+        title: t('dataset:import_param_setting')
+      },
+      {
+        title: t('dataset:import_data_preview')
+      },
+      {
+        title: t('dataset:import_confirm')
+      }
+    ],
     [ImportDataSourceEnum.fileCustom]: [
       {
         title: t('dataset:import_select_file')

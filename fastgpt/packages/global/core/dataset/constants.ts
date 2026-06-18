@@ -230,6 +230,7 @@ export enum ImportDataSourceEnum {
   fileLocal = 'fileLocal',
   fileLink = 'fileLink',
   urlDirectory = 'urlDirectory',
+  githubProjectCards = 'githubProjectCards',
   fileCustom = 'fileCustom',
   externalFile = 'externalFile',
   apiDataset = 'apiDataset',

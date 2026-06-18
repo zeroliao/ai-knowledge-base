@@ -132,6 +132,41 @@ export type PreviewUrlDirectoryResponseType = z.infer<
 >;
 
 /* ============================================================================
+ * API: 预览 GitHub 项目卡片
+ * Route: POST /core/dataset/collection/create/githubProjectCards/preview
+ * ============================================================================ */
+export const PreviewGithubProjectCardsBodySchema = z.object({
+  datasetId: z.string().meta({ description: '数据集 ID' }),
+  urls: z
+    .array(z.string().min(1))
+    .min(1)
+    .max(50)
+    .meta({ description: 'GitHub 仓库或目录链接列表' })
+});
+export type PreviewGithubProjectCardsBodyType = z.infer<
+  typeof PreviewGithubProjectCardsBodySchema
+>;
+
+export const GithubProjectCardSchema = z.object({
+  name: z.string(),
+  category: z.string(),
+  sourceUrl: z.string().url(),
+  sourcePath: z.string().optional(),
+  owner: z.string(),
+  repo: z.string(),
+  text: z.string()
+});
+export type GithubProjectCardType = z.infer<typeof GithubProjectCardSchema>;
+
+export const PreviewGithubProjectCardsResponseSchema = z.object({
+  total: z.number().int().min(0),
+  cards: z.array(GithubProjectCardSchema)
+});
+export type PreviewGithubProjectCardsResponseType = z.infer<
+  typeof PreviewGithubProjectCardsResponseSchema
+>;
+
+/* ============================================================================
  * API: 通过文本创建集合
  * Route: POST /core/dataset/collection/create/text
  * ============================================================================ */

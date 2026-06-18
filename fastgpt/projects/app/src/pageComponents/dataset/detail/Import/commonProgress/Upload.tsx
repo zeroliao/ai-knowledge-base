@@ -149,10 +149,14 @@ const Upload = () => {
                 webPageSelector: webSelector
               }
             });
-          } else if (importSource === ImportDataSourceEnum.fileCustom && item.rawText) {
-            // manual collection
+          } else if (
+            (importSource === ImportDataSourceEnum.fileCustom ||
+              importSource === ImportDataSourceEnum.githubProjectCards) &&
+            item.rawText
+          ) {
             await postCreateDatasetTextCollection({
               ...commonParams,
+              metadata: item.metadata,
               text: item.rawText
             });
           } else if (importSource === ImportDataSourceEnum.externalFile && item.externalFileUrl) {

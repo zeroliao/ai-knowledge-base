@@ -16,6 +16,8 @@ import type {
   ReTrainingCollectionBodyType,
   PreviewUrlDirectoryBodyType,
   PreviewUrlDirectoryResponseType,
+  PreviewGithubProjectCardsBodyType,
+  PreviewGithubProjectCardsResponseType,
   CreateLinkCollectionBodyType,
   CreateTextCollectionBodyType,
   CreateCollectionBodyType
@@ -85,6 +87,12 @@ export const postCreateDatasetLinkCollection = (data: CreateLinkCollectionBodyTy
   POST<{ collectionId: string }>(`/core/dataset/collection/create/link`, data);
 export const postPreviewUrlDirectory = (data: PreviewUrlDirectoryBodyType) =>
   POST<PreviewUrlDirectoryResponseType>(`/core/dataset/collection/create/urlDirectory/preview`, data);
+export const postPreviewGithubProjectCards = (data: PreviewGithubProjectCardsBodyType) =>
+  POST<PreviewGithubProjectCardsResponseType>(
+    `/core/dataset/collection/create/githubProjectCards/preview`,
+    data,
+    { timeout: 60000 }
+  );
 export const postCreateDatasetTextCollection = (data: CreateTextCollectionBodyType) =>
   POST<{ collectionId: string }>(`/core/dataset/collection/create/text`, data);
 export const postCreateDatasetApiDatasetCollection = (data: CreateApiCollectionV2BodyType) =>

@@ -39,6 +39,11 @@ const FileModeSelector = ({ onClose }: { onClose: () => void }) => {
               value: ImportDataSourceEnum.urlDirectory
             },
             {
+              title: 'GitHub 项目卡片',
+              desc: '输入 GitHub 仓库或目录链接，生成项目推荐卡片并导入知识库',
+              value: ImportDataSourceEnum.githubProjectCards
+            },
+            {
               title: t('common:core.dataset.import.Custom text'),
               desc: t('common:core.dataset.import.Custom text desc'),
               value: ImportDataSourceEnum.fileCustom

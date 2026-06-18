@@ -67,4 +67,4 @@ FastGPT 本地源码已增加集中式功能开关和入口控制：
 - FastGPT 源码仓库作为私有二开仓库维护。
 - 不默认 pull、merge 或 rebase FastGPT 上游。
 - 后续升级只基于本地产品需求和明确版本任务执行。
-- 每次部署前必须记录 FastGPT 本地 commit、aiKnowledge 文档 commit、镜像 tag、服务器快照和回滚目标。
+- 每次部署前必须记录 FastGPT 本地 commit、ai-knowledge-base 文档 commit、镜像 tag、服务器快照和回滚目标。

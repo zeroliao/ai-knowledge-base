@@ -38,7 +38,10 @@ const PreviewData = () => {
 
       const chunkData = processParamsForm.getValues();
 
-      if (importSource === ImportDataSourceEnum.fileCustom) {
+      if (
+        importSource === ImportDataSourceEnum.fileCustom ||
+        importSource === ImportDataSourceEnum.githubProjectCards
+      ) {
         const chunkSplitter = processParamsForm.getValues('chunkSplitter');
         const { chunks } = splitText2Chunks({
           text: previewFile.rawText || '',

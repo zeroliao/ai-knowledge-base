@@ -8,6 +8,7 @@ import DatasetImportContextProvider, { DatasetImportContext } from './Context';
 const FileLocal = dynamic(() => import('./diffSource/FileLocal'));
 const FileLink = dynamic(() => import('./diffSource/FileLink'));
 const UrlDirectory = dynamic(() => import('./diffSource/UrlDirectory'));
+const GithubProjectCards = dynamic(() => import('./diffSource/GithubProjectCards'));
 const FileCustomText = dynamic(() => import('./diffSource/FileCustomText'));
 const ExternalFileCollection = dynamic(() => import('./diffSource/ExternalFile'));
 const APIDatasetCollection = dynamic(() => import('./diffSource/APIDataset'));
@@ -22,6 +23,7 @@ const ImportDataset = () => {
     if (importSource === ImportDataSourceEnum.fileLocal) return FileLocal;
     if (importSource === ImportDataSourceEnum.fileLink) return FileLink;
     if (importSource === ImportDataSourceEnum.urlDirectory) return UrlDirectory;
+    if (importSource === ImportDataSourceEnum.githubProjectCards) return GithubProjectCards;
     if (importSource === ImportDataSourceEnum.fileCustom) return FileCustomText;
     if (importSource === ImportDataSourceEnum.externalFile) return ExternalFileCollection;
     if (importSource === ImportDataSourceEnum.apiDataset) return APIDatasetCollection;
