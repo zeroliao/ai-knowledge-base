@@ -48,6 +48,23 @@ FastGPT 本地源码已增加集中式功能开关和入口控制：
 - 完成 URL 目录导入、来源可点击、来源清单、基础资料入库验收。
 - 隐藏不可用 FastGPT 原功能入口。
 
+### 向量维度契约
+
+FastGPT 的 embedding 格式化和 PostgreSQL `modeldata.vector` 建表共用
+`VECTOR_DIMENSION` 环境变量，默认值为 `2048`。该值必须与 FastGPT 页面中所选
+embedding 模型的实际输出维度一致；切换维度不会自动迁移已有数据库。
+
+本地验证前运行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\ops\scripts\local\check-vector-dimension.ps1
+powershell -ExecutionPolicy Bypass -File .\ops\scripts\local\validate-dataset-fixtures.ps1
+```
+
+传入 `-ContainerName` 时，维度脚本还会只读检查 PostgreSQL 的
+`modeldata.vector` 列。若代码契约和数据库列不一致，必须在本地重建向量表并重新
+向量化；脚本不会删除知识库、不会执行迁移，也不会触碰线上数据。
+
 ### 阶段 2：安全和质量补强
 
 - 补 URL 导入 SSRF 防护。

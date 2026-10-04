@@ -125,6 +125,10 @@ export const serviceEnv = createEnv({
     MONGODB_LOG_URI: z.string().optional(),
 
     // VectorDB
+    VECTOR_DIMENSION: IntSchema.min(1).max(4000).default(2048).meta({
+      description:
+        '向量索引维度。必须与 embedding 模型输出维度和 pgvector modeldata.vector 维度一致；变更后需重建索引并重新向量化'
+    }),
     VECTOR_VQ_LEVEL: IntSchema.default(32).meta({
       description: '向量量化等级'
     }),
