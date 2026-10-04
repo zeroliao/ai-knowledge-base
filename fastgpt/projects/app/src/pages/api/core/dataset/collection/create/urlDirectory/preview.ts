@@ -3,7 +3,7 @@ import { NextAPI } from '@/service/middleware/entry';
 import { WritePermissionVal } from '@fastgpt/global/support/permission/constant';
 import { type ApiRequestProps } from '@fastgpt/service/type/next';
 import { parseApiInput } from '@fastgpt/service/common/zod/requestParseError';
-import { checkUrlSafety } from '@fastgpt/service/common/system/utils';
+import { checkUrlSafety, fetchUrlSafely } from '@fastgpt/service/common/system/utils';
 import {
   PreviewUrlDirectoryBodySchema,
   PreviewUrlDirectoryResponseSchema,
@@ -12,6 +12,7 @@ import {
 } from '@fastgpt/global/openapi/core/dataset/collection/createApi';
 
 const MAX_PREVIEW_URLS = 1000;
+const MAX_DISCOVERY_RESPONSE_BYTES = 2 * 1024 * 1024;
 const USER_AGENT = 'FastGPT-url-directory-import/1.0';
 const DISCOVERY_CANDIDATE_PATHS = [
   '/robots.txt',
@@ -68,9 +69,9 @@ function parseFeedUrls(xml: string) {
   const rssLinks = [...xml.matchAll(/<link>\s*([^<]+?)\s*<\/link>/gi)].map((match) =>
     decodeXmlText(match[1].trim())
   );
-  const atomLinks = [
-    ...xml.matchAll(/<link\b[^>]*\bhref=["']([^"']+)["'][^>]*>/gi)
-  ].map((match) => decodeXmlText(match[1].trim()));
+  const atomLinks = [...xml.matchAll(/<link\b[^>]*\bhref=["']([^"']+)["'][^>]*>/gi)].map((match) =>
+    decodeXmlText(match[1].trim())
+  );
 
   return [...rssLinks, ...atomLinks];
 }
@@ -192,29 +193,24 @@ function getFetchErrorMessage(url: string, error: unknown) {
 }
 
 async function fetchEntry(url: string) {
-  await checkUrlSafety(url, 'entryUrl');
-
-  let response: Response;
   try {
-    response = await fetch(url, {
+    const result = await fetchUrlSafely(url, {
+      timeoutMs: 15_000,
+      maxBytes: MAX_DISCOVERY_RESPONSE_BYTES,
+      maxRedirects: 3,
       headers: {
         'User-Agent': USER_AGENT
-      },
-      signal: AbortSignal.timeout(15000)
+      }
     });
+
+    return {
+      finalUrl: result.url,
+      contentType: result.response.headers.get('content-type') || '',
+      text: result.text
+    };
   } catch (error) {
     throw new Error(getFetchErrorMessage(url, error));
   }
-
-  if (!response.ok) {
-    throw new Error(`URL directory entry request failed: ${response.status} ${response.statusText}`);
-  }
-
-  return {
-    finalUrl: response.url || url,
-    contentType: response.headers.get('content-type') || '',
-    text: await response.text()
-  };
 }
 
 async function collectUrlDirectoryLinks({
@@ -247,16 +243,21 @@ async function collectUrlDirectoryLinks({
 
     const text = entry.text;
     const normalizedCurrentUrl = normalizeUrl(entry.finalUrl) || currentEntryUrl;
+    await checkUrlSafety(normalizedCurrentUrl, 'entryUrl');
     const isXmlLike = /xml|rss|atom/i.test(entry.contentType) || /^\s*</.test(text);
 
     if (isLikelyRobotsUrl(normalizedCurrentUrl)) {
-      const sitemapUrls = parseRobotsSitemapUrls(text).filter(isHttpUrl);
+      const sitemapUrls = parseRobotsSitemapUrls(text)
+        .map((item) => normalizeUrl(item, normalizedCurrentUrl))
+        .filter((item): item is string => !!item && isHttpUrl(item));
       queue.push(...sitemapUrls);
       continue;
     }
 
     if (isXmlLike && /<sitemapindex[\s>]/i.test(text)) {
-      const sitemapUrls = parseSitemapUrls(text).filter(isHttpUrl);
+      const sitemapUrls = parseSitemapUrls(text)
+        .map((item) => normalizeUrl(item, normalizedCurrentUrl))
+        .filter((item): item is string => !!item && isHttpUrl(item));
       queue.push(...sitemapUrls);
       continue;
     }
@@ -273,9 +274,10 @@ async function collectUrlDirectoryLinks({
     }
 
     if (isXmlLike && /<(rss|feed)\b/i.test(text)) {
-      const feedUrls = parseFeedUrls(text).filter((url) =>
-        isImportablePageUrl(url, normalizedEntryUrl)
-      );
+      const feedUrls = parseFeedUrls(text)
+        .map((item) => normalizeUrl(item, normalizedCurrentUrl))
+        .filter((item): item is string => !!item)
+        .filter((url) => isImportablePageUrl(url, normalizedEntryUrl));
       for (const feedUrl of feedUrls) {
         urls.add(feedUrl);
         if (urls.size >= maxUrls) break;

@@ -214,6 +214,7 @@ export const CollectionSourceListItemSchema = z.object({
   rawLink: z.string().optional().meta({ description: 'Raw link' }),
   externalFileId: z.string().optional().meta({ description: 'External file ID' }),
   externalFileUrl: z.string().optional().meta({ description: 'External file URL' }),
+  metadata: z.record(z.string(), z.any()).optional().meta({ description: 'Source metadata' }),
   tags: z.array(z.string()).optional().meta({ description: 'Tags' }),
   sourceUrl: z.string().optional().meta({ description: 'Direct source URL when available' }),
   dataAmount: z.number().meta({ description: 'Data count' }),
