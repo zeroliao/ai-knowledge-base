@@ -39,7 +39,13 @@ async function handler(req: ApiRequestProps): Promise<CreateCollectionWithResult
       tmbId,
       type: DatasetCollectionTypeEnum.link,
       metadata: {
+        ...body.metadata,
         relatedImgId: link,
+        sourceType: 'url',
+        sourceTitle: link,
+        originalUrl: link,
+        originalPath: link,
+        importedAt: new Date().toISOString(),
         webPageSelector: body?.metadata?.webPageSelector
       },
       rawLink: link

@@ -65,7 +65,8 @@ async function handler(req: ApiRequestProps): Promise<CollectionSourceListRespon
     rawLink: 1,
     tags: 1,
     externalFileId: 1,
-    externalFileUrl: 1
+    externalFileUrl: 1,
+    metadata: 1
   };
 
   const [collections, total] = await Promise.all([

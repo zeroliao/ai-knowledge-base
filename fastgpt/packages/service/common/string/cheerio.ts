@@ -1,9 +1,9 @@
 import { type UrlFetchParams, type UrlFetchResponse } from '@fastgpt/global/common/file/api';
 import * as cheerio from 'cheerio';
-import { axios } from '../api/axios';
 import { htmlToMarkdown } from './utils';
-import { isInternalAddress } from '../system/utils';
+import { checkUrlSafety, fetchUrlSafely } from '../system/utils';
 import { getLogger, LogCategories } from '../logger';
+import { retryFn } from '@fastgpt/global/common/system/utils';
 
 const logger = getLogger(LogCategories.HTTP.ERROR);
 
@@ -251,8 +251,9 @@ export const urlsFetch = async ({
 
   const response = await Promise.all(
     urlList.map(async (url) => {
-      const isInternal = await isInternalAddress(url);
-      if (isInternal) {
+      try {
+        await checkUrlSafety(url, 'url');
+      } catch {
         return {
           url,
           title: '',
@@ -262,13 +263,22 @@ export const urlsFetch = async ({
       }
 
       try {
-        const fetchRes = await axios.get(url, {
-          timeout: 30000
-        });
+        const fetchRes = await retryFn(
+          () =>
+            fetchUrlSafely(url, {
+              timeoutMs: 30_000,
+              maxBytes: 5 * 1024 * 1024,
+              maxRedirects: 3,
+              headers: {
+                'User-Agent': 'FastGPT-dataset-import/1.0'
+              }
+            }),
+          2
+        );
 
-        const $ = cheerio.load(fetchRes.data);
+        const $ = cheerio.load(fetchRes.text);
         const { title, html, usedSelector } = cheerioToHtml({
-          fetchUrl: url,
+          fetchUrl: fetchRes.url,
           $,
           selector
         });
