@@ -4,9 +4,9 @@ import { PgClient, connectPg } from './controller';
 import type { VectorControllerType } from '../type';
 import dayjs from 'dayjs';
 import { getLogger, LogCategories } from '../../logger';
+import { VECTOR_DIMENSION } from '../dimension';
 
 const logger = getLogger(LogCategories.INFRA.POSTGRES);
-const PG_VECTOR_DIMENSION = 2048;
 
 export class PgVectorCtrl implements VectorControllerType {
   constructor() {}
@@ -17,7 +17,7 @@ export class PgVectorCtrl implements VectorControllerType {
         CREATE EXTENSION IF NOT EXISTS vector;
         CREATE TABLE IF NOT EXISTS ${DatasetVectorTableName} (
             id BIGSERIAL PRIMARY KEY,
-            vector HALFVEC(${PG_VECTOR_DIMENSION}) NOT NULL,
+            vector HALFVEC(${VECTOR_DIMENSION}) NOT NULL,
             team_id VARCHAR(50) NOT NULL,
             dataset_id VARCHAR(50) NOT NULL,
             collection_id VARCHAR(50) NOT NULL,
