@@ -1,45 +1,91 @@
 #!/usr/bin/env bash
 set -euo pipefail
-
-if [ "${1:-}" = "" ]; then
-  echo "Usage: $0 /opt/fastgpt-backups/YYYYMMDD-HHMMSS"
-  exit 1
-fi
+umask 077
 
 ROOT_DIR="${FASTGPT_DEPLOY_DIR:-/opt/fastgpt}"
-BACKUP_DIR="$1"
 COMPOSE_FILES=(-f docker-compose.pg.yml -f docker-compose.server.override.yml)
 ENV_FILE="${FASTGPT_ENV_FILE:-.env}"
+BACKUP_DIR=""
+DRY_RUN=false
+CONFIRM=false
 
-if [ ! -d "${BACKUP_DIR}" ]; then
-  echo "Backup directory not found: ${BACKUP_DIR}"
+usage() {
+  cat <<'EOF'
+Usage: restore-fastgpt.sh BACKUP_DIR [options]
+
+Validates a backup manifest and restores MongoDB, PostgreSQL/pgvector and MinIO.
+This is destructive for the target databases and object storage.
+
+Options:
+  --dry-run                 Validate files and print the restore plan only.
+  --confirm                 Required for non-interactive execution.
+  -h, --help                Show this help.
+
+Before production use, restore into an isolated stack and verify sample documents,
+vector dimensions, citations and original-file access.
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --dry-run) DRY_RUN=true; shift ;;
+    --confirm) CONFIRM=true; shift ;;
+    -h|--help) usage; exit 0 ;;
+    -*) echo "Unknown option: $1" >&2; usage; exit 2 ;;
+    *) [[ -z "$BACKUP_DIR" ]] && BACKUP_DIR="$1" || { echo "Only one backup directory is allowed" >&2; exit 2; }; shift ;;
+  esac
+done
+
+if [[ -z "$BACKUP_DIR" || ! -d "$BACKUP_DIR" ]]; then
+  echo "Backup directory not found. Usage: $0 BACKUP_DIR [--dry-run|--confirm]" >&2
+  exit 1
+fi
+if [[ "$ROOT_DIR" == "/" || -z "$ROOT_DIR" ]]; then
+  echo "Refusing unsafe deployment directory: $ROOT_DIR" >&2
   exit 1
 fi
 
 for file in mongo.archive.gz postgres.sql.gz; do
-  if [ ! -f "${BACKUP_DIR}/${file}" ]; then
-    echo "Required backup file missing: ${BACKUP_DIR}/${file}"
-    exit 1
-  fi
+  [[ -f "$BACKUP_DIR/$file" ]] || { echo "Required backup file missing: $BACKUP_DIR/$file" >&2; exit 1; }
 done
-if [ ! -d "${BACKUP_DIR}/minio-data" ] && [ ! -f "${BACKUP_DIR}/minio-data.tar.gz" ]; then
-  echo "Required backup path missing: ${BACKUP_DIR}/minio-data or ${BACKUP_DIR}/minio-data.tar.gz"
+if [[ -f "$BACKUP_DIR/manifest.sha256" ]]; then
+  (cd "$BACKUP_DIR" && sha256sum -c manifest.sha256)
+else
+  echo "Warning: legacy backup has no manifest.sha256; gzip and MinIO checks will still run." >&2
+fi
+if [[ ! -f "$BACKUP_DIR/minio-data.tar.gz" && ! -d "$BACKUP_DIR/minio-data" ]]; then
+  echo "Required MinIO backup missing: minio-data.tar.gz or minio-data/" >&2
   exit 1
 fi
+gzip -t "$BACKUP_DIR/mongo.archive.gz" "$BACKUP_DIR/postgres.sql.gz"
+if [[ -f "$BACKUP_DIR/minio-data.tar.gz" ]]; then tar -tzf "$BACKUP_DIR/minio-data.tar.gz" >/dev/null; fi
 
-cd "${ROOT_DIR}"
+echo "Restore plan:"
+echo "  source: $BACKUP_DIR"
+echo "  target: $ROOT_DIR"
+echo "  components: MongoDB, PostgreSQL/pgvector, MinIO"
+echo "  warning: existing target data will be replaced"
 
-echo "This will restore MongoDB, PostgreSQL/vector data and MinIO data from:"
-echo "${BACKUP_DIR}"
-echo "Type RESTORE to continue:"
-read -r confirm
-if [ "${confirm}" != "RESTORE" ]; then
-  echo "Restore cancelled."
-  exit 1
+if [[ "$DRY_RUN" == true ]]; then
+  echo "Dry-run complete; no data was changed."
+  exit 0
 fi
+
+if [[ "$CONFIRM" != true ]]; then
+  if [[ ! -t 0 ]]; then
+    echo "Non-interactive restore requires --confirm." >&2
+    exit 2
+  fi
+  read -r -p "Type RESTORE to continue: " answer
+  [[ "$answer" == RESTORE ]] || { echo "Restore cancelled."; exit 1; }
+fi
+
+cd "$ROOT_DIR"
+[[ -f "$ENV_FILE" ]] || { echo "Environment file not found: $ROOT_DIR/$ENV_FILE" >&2; exit 1; }
+command -v docker >/dev/null || { echo "docker is required" >&2; exit 1; }
 
 echo "Restoring MongoDB..."
-cat "${BACKUP_DIR}/mongo.archive.gz" | docker compose --env-file "${ENV_FILE}" "${COMPOSE_FILES[@]}" exec -T fastgpt-mongo \
+cat "$BACKUP_DIR/mongo.archive.gz" | docker compose --env-file "$ENV_FILE" "${COMPOSE_FILES[@]}" exec -T fastgpt-mongo \
   mongorestore \
   --username "${MONGO_INITDB_ROOT_USERNAME:-myusername}" \
   --password "${MONGO_INITDB_ROOT_PASSWORD:-mypassword}" \
@@ -49,22 +95,25 @@ cat "${BACKUP_DIR}/mongo.archive.gz" | docker compose --env-file "${ENV_FILE}" "
   --drop
 
 echo "Restoring PostgreSQL/vector database..."
-gunzip -c "${BACKUP_DIR}/postgres.sql.gz" | docker compose --env-file "${ENV_FILE}" "${COMPOSE_FILES[@]}" exec -T fastgpt-vector \
+gzip -dc "$BACKUP_DIR/postgres.sql.gz" | docker compose --env-file "$ENV_FILE" "${COMPOSE_FILES[@]}" exec -T fastgpt-vector \
   psql -U "${POSTGRES_USER:-username}" -d postgres
 
 echo "Restoring MinIO object storage..."
-docker compose --env-file "${ENV_FILE}" "${COMPOSE_FILES[@]}" exec -T fastgpt-minio \
-  sh -c 'rm -rf /data/*'
-if [ -d "${BACKUP_DIR}/minio-data" ]; then
-  docker cp "${BACKUP_DIR}/minio-data/." fastgpt-minio:/data
+docker compose --env-file "$ENV_FILE" "${COMPOSE_FILES[@]}" exec -T fastgpt-minio sh -c 'rm -rf /data/*'
+if [[ -f "$BACKUP_DIR/minio-data.tar.gz" ]]; then
+  TMP_RESTORE="$(mktemp -d /tmp/fastgpt-minio-restore.XXXXXX)"
+  cleanup() { rm -rf "$TMP_RESTORE"; }
+  trap cleanup EXIT
+  tar -C "$TMP_RESTORE" -xzf "$BACKUP_DIR/minio-data.tar.gz"
+  docker cp "$TMP_RESTORE/minio-data/." fastgpt-minio:/data
 else
-  tmp_minio_restore="$(mktemp -d /tmp/fastgpt-minio-restore.XXXXXX)"
-  trap 'rm -rf "${tmp_minio_restore}"' EXIT
-  tar -C "${tmp_minio_restore}" -xzf "${BACKUP_DIR}/minio-data.tar.gz"
-  docker cp "${tmp_minio_restore}/." fastgpt-minio:/data
+  docker cp "$BACKUP_DIR/minio-data/." fastgpt-minio:/data
 fi
 
-echo "Restarting services..."
-docker compose --env-file "${ENV_FILE}" "${COMPOSE_FILES[@]}" restart fastgpt-app fastgpt-plugin
+if [[ -f "$BACKUP_DIR/storage.tar.gz" ]]; then
+  echo "Host /storage archive is available at $BACKUP_DIR/storage.tar.gz; restore it separately after review."
+fi
 
-echo "Restore complete."
+echo "Restarting application services..."
+docker compose --env-file "$ENV_FILE" "${COMPOSE_FILES[@]}" restart fastgpt-app fastgpt-plugin
+echo "Restore complete. Verify service health, vector dimensions and representative citations before production traffic."
